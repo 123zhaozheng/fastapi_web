@@ -1,0 +1,88 @@
+import os
+import time
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from loguru import logger
+
+from app.config import settings
+from app.api import auth, users, roles, departments, menus, agents, chat, config
+from app.utils.logger import setup_logging
+from app.core.exceptions import AppException
+
+# Create FastAPI app
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+)
+
+# Set up CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Setup logging
+setup_logging()
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", "")
+    ip = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("User-Agent", "")
+    
+    logger.info(f"Request started: {request.method} {request.url.path} - IP: {ip} - User-Agent: {user_agent}")
+    
+    start_time = time.time()
+    
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        logger.info(f"Request completed: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
+        
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
+    except Exception as e:
+        process_time = time.time() - start_time
+        logger.error(f"Request failed: {request.method} {request.url.path} - Error: {str(e)} - Time: {process_time:.3f}s")
+        raise
+
+# Global exception handler
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    logger.error(f"AppException: {str(exc.detail)} - Status: {exc.status_code}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": exc.code}
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled exception: {str(exc)}")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error", "code": "internal_error"}
+    )
+
+# Include API routers
+app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["Authentication"])
+app.include_router(users.router, prefix=settings.API_V1_STR, tags=["Users"])
+app.include_router(roles.router, prefix=settings.API_V1_STR, tags=["Roles"])
+app.include_router(departments.router, prefix=settings.API_V1_STR, tags=["Departments"])
+app.include_router(menus.router, prefix=settings.API_V1_STR, tags=["Menus"])
+app.include_router(agents.router, prefix=settings.API_V1_STR, tags=["Agents"])
+app.include_router(chat.router, prefix=settings.API_V1_STR, tags=["Chat"])
+app.include_router(config.router, prefix=settings.API_V1_STR, tags=["Config"])
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to AI Chat API"}
+
+# Run the application with uvicorn when this script is executed
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

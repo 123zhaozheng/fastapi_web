@@ -1,0 +1,193 @@
+from datetime import datetime, timedelta
+from typing import Any
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.user import User
+from app.schemas.token import Token, RefreshToken
+from app.schemas.user import UserLogin
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    verify_password,
+)
+from app.core.exceptions import InvalidCredentialsException
+from jose import jwt, JWTError
+from app.core.security import SECRET_KEY
+from loguru import logger
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/login", response_model=Token)
+async def login(
+    user_credentials: UserLogin,
+    db: Session = Depends(get_db)
+) -> Any:
+    """
+    用户登录接口 (JSON)
+
+    通过用户名和密码进行身份验证，成功后返回访问令牌和刷新令牌。
+
+    Args:
+        user_credentials (UserLogin): 包含用户名和密码的请求体。
+        db (Session): 数据库会话依赖。
+
+    Returns:
+        Token: 包含访问令牌、刷新令牌和令牌类型的响应模型。
+
+    Raises:
+        InvalidCredentialsException: 如果提供的凭据无效或用户账户被禁用。
+    """
+    # Authenticate user
+    user = db.query(User).filter(User.username == user_credentials.username).first()
+    
+    if not user or not verify_password(user_credentials.password, user.hashed_password):
+        logger.warning(f"Login failed: Invalid credentials for user {user_credentials.username}")
+        raise InvalidCredentialsException()
+    
+    if not user.is_active:
+        logger.warning(f"Login failed: Inactive user {user_credentials.username}")
+        raise InvalidCredentialsException("Account is disabled")
+    
+    # Update last login timestamp
+    user.last_login = datetime.utcnow()
+    db.commit()
+    
+    # Generate tokens
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+    
+    logger.info(f"User {user.username} logged in successfully")
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+
+@router.post("/login/form", response_model=Token)
+async def login_form(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+) -> Any:
+    """
+    用户登录接口 (表单)
+
+    通过 OAuth2 兼容的表单数据（用户名和密码）进行身份验证，成功后返回访问令牌和刷新令牌。
+
+    Args:
+        form_data (OAuth2PasswordRequestForm): 包含用户名和密码的表单数据依赖。
+        db (Session): 数据库会话依赖。
+
+    Returns:
+        Token: 包含访问令牌、刷新令牌和令牌类型的响应模型。
+
+    Raises:
+        InvalidCredentialsException: 如果提供的凭据无效或用户账户被禁用。
+    """
+    logger.debug(f"Entering login_form for user: {form_data.username}")
+
+    # Authenticate user
+    logger.debug(f"Executing database query for user: {form_data.username}")
+    user = db.query(User).filter(User.username == form_data.username).first()
+    logger.debug(f"Database query result for user {form_data.username}: {'User found' if user else 'User not found'}")
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        logger.warning(f"Login failed: Invalid credentials for user {form_data.username}")
+        raise InvalidCredentialsException()
+
+    if not user.is_active:
+        logger.warning(f"Login failed: Inactive user {form_data.username}")
+        raise InvalidCredentialsException("Account is disabled")
+
+    # Update last login timestamp
+    user.last_login = datetime.utcnow()
+    db.commit()
+    logger.debug(f"Database commit successful for user: {user.username}")
+
+    # Generate tokens
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+
+    logger.info(f"User {user.username} logged in successfully via form")
+    logger.debug(f"Exiting login_form for user: {user.username}")
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_token_endpoint(
+    refresh_token_data: RefreshToken,
+    db: Session = Depends(get_db)
+) -> Any:
+    """
+    刷新访问令牌接口
+
+    使用有效的刷新令牌获取新的访问令牌和刷新令牌。
+
+    Args:
+        refresh_token_data (RefreshToken): 包含刷新令牌的请求体。
+        db (Session): 数据库会话依赖。
+
+    Returns:
+        Token: 包含新的访问令牌、刷新令牌和令牌类型的响应模型。
+
+    Raises:
+        HTTPException: 如果提供的刷新令牌无效或已过期。
+    """
+    try:
+        # Decode refresh token
+        payload = jwt.decode(
+            refresh_token_data.refresh_token,
+            SECRET_KEY,
+            algorithms=["HS256"]
+        )
+        
+        # Validate token type and expiration
+        if payload.get("type") != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Get user ID from token
+        user_id = int(payload.get("sub"))
+        
+        # Get user from database
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token or inactive user",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Generate new tokens
+        new_access_token = create_access_token(user.id)
+        new_refresh_token = create_refresh_token(user.id)
+        
+        logger.info(f"Tokens refreshed for user {user.username}")
+        
+        return {
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer"
+        }
+        
+    except JWTError:
+        logger.warning("Token refresh failed: Invalid refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
