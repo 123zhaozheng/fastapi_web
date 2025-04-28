@@ -286,6 +286,7 @@ async def create_user(
     db.flush()  # Flush to get ID but don't commit yet
     
     # Add roles if specified
+    # Add roles if specified, OR assign default roles if none specified
     if user.role_ids:
         roles = db.query(Role).filter(Role.id.in_(user.role_ids)).all()
         if len(roles) != len(user.role_ids):
@@ -295,6 +296,12 @@ async def create_user(
             raise ResourceNotFoundException("Role", str(missing_ids))
         
         db_user.roles = roles
+    else:
+        # Find and assign default roles
+        default_roles = db.query(Role).filter(Role.is_default == True).all()
+        if default_roles:
+            db_user.roles = default_roles
+        # else: No default roles found, user will have no roles initially
     
     # Commit changes
     try:
