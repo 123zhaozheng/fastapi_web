@@ -6,15 +6,20 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.config import settings
-from app.api import auth, users, roles, departments, menus, agents, chat, config
+from app.api import auth, users, roles, departments, menus, agents, chat
 from app.utils.logger import setup_logging
 from app.core.exceptions import AppException
 
-# Create FastAPI app
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logger.info("Creating FastAPI app...")
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
 )
+logger.info("FastAPI app created.")
 
 # Set up CORS
 app.add_middleware(
@@ -68,6 +73,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error", "code": "internal_error"}
     )
 
+logger.info("Including API routers...")
 # Include API routers
 app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["Authentication"])
 app.include_router(users.router, prefix=settings.API_V1_STR, tags=["Users"])
@@ -76,7 +82,7 @@ app.include_router(departments.router, prefix=settings.API_V1_STR, tags=["Depart
 app.include_router(menus.router, prefix=settings.API_V1_STR, tags=["Menus"])
 app.include_router(agents.router, prefix=settings.API_V1_STR, tags=["Agents"])
 app.include_router(chat.router, prefix=settings.API_V1_STR, tags=["Chat"])
-app.include_router(config.router, prefix=settings.API_V1_STR, tags=["Config"])
+logger.info("API routers included.")
 
 @app.get("/")
 async def root():
@@ -85,4 +91,4 @@ async def root():
 # Run the application with uvicorn when this script is executed
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)

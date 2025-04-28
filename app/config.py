@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     DATABASE_URI: Optional[PostgresDsn] = os.getenv("DATABASE_URL")
 
     # Redis settings
-    REDIS_HOST: str = os.getenv("REDIS_HOST", "137.184.113.70")
-    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "16379"))
-    REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
-    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    # REDIS_HOST: str = os.getenv("REDIS_HOST", "137.184.113.70")
+    # REDIS_PORT: int = int(os.getenv("REDIS_PORT", "16379"))
+    # REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
+    # REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
     
     # Dify API settings
     DIFY_API_BASE_URL: str = os.getenv("DIFY_API_BASE_URL", "http://137.184.113.70/v1")

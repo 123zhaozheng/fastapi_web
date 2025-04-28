@@ -7,7 +7,6 @@ from app.database import get_db
 from app.models.user import User
 from app.core.deps import get_admin_user
 from app.config import settings
-from app.database import redis_client
 from loguru import logger
 
 router = APIRouter(prefix="/config", tags=["Config"])

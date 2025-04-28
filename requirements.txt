@@ -17,7 +17,6 @@ pydantic>=2.11.3       # Data validation and settings management using Python ty
 pydantic-settings>=2.9.1 # Settings management for Pydantic
 python-jose>=3.4.0     # JOSE (JSON Object Signing and Encryption) library (often used for authentication)
 python-multipart>=0.0.20 # Parsing multipart/form-data requests (often used with FastAPI/Starlette)
-redis>=5.2.1           # Redis client library
 sqlalchemy>=2.0.40     # SQLAlchemy ORM and SQL Toolkit
 sse-starlette>=2.3.3   # Server-Sent Events support for Starlette (and FastAPI)
 uvicorn>=0.34.2        # Uvicorn ASGI server (often used with FastAPI/Starlette)
