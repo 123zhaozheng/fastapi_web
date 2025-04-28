@@ -30,8 +30,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Import StaticFiles for serving static files
+from fastapi.staticfiles import StaticFiles
+
 # Setup logging
 setup_logging()
+
+# Mount static files directory for avatars
+# The first parameter "/avatars" is the URL path for frontend access
+# The second parameter directory=settings.FILE_STORAGE_PATH + "/avatars" is the actual directory on the backend server where images are stored
+# The third parameter name="avatars" is the name of this static route
+app.mount("/avatars", StaticFiles(directory=settings.FILE_STORAGE_PATH + "/avatars"), name="avatars")
+app.mount("/icons", StaticFiles(directory=settings.FILE_STORAGE_PATH + "/icons"), name="icons")
 
 # Request logging middleware
 @app.middleware("http")

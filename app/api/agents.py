@@ -1,5 +1,5 @@
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -13,6 +13,7 @@ from app.models.department import Department
 from app.schemas import agent as schemas
 from app.core.deps import get_current_user, get_admin_user
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
+from app.services.file_storage import FileStorageService
 from loguru import logger
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
@@ -527,3 +528,51 @@ async def get_available_agents(
             all_agents[agent.id] = agent
     
     return list(all_agents.values())
+
+@router.post("/{agent_id}/icon")
+async def upload_agent_icon(
+    agent_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
+) -> Any:
+    """
+    上传 Agent 图标 (管理员)
+
+    为指定的 Agent 上传图标图片。仅管理员可访问。
+
+    Args:
+        agent_id (int): 要上传图标的 Agent ID。
+        file (UploadFile): 要上传的图标文件。
+
+    Returns:
+        Dict[str, Any]: 包含图标 URL 的字典。
+
+    Raises:
+        ResourceNotFoundException: 如果指定的 Agent ID 不存在。
+        HTTPException: 如果上传的文件不是图片。
+    """
+    # Get agent
+    db_agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not db_agent:
+        raise ResourceNotFoundException("Agent", str(agent_id))
+
+    # Validate file type (optional, but recommended for icons)
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be an image"
+        )
+
+    # Save icon using FileStorageService
+    file_service = FileStorageService()
+    icon_info = await file_service.save_agent_icon(file, agent_id)
+
+    # Update agent icon URL
+    db_agent.icon = icon_info["url"]
+    db.commit()
+    db.refresh(db_agent)
+
+    logger.info(f"Agent icon updated for agent ID {agent_id}")
+
+    return {"url": db_agent.icon}

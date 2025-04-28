@@ -70,6 +70,43 @@ class FileStorageService:
         
         return result
     
+    async def save_agent_icon(self, file: UploadFile, agent_id: int) -> Dict[str, Any]:
+        """
+        Save agent icon
+        
+        Args:
+            file: Uploaded icon file
+            agent_id: Agent ID
+            
+        Returns:
+            Dictionary with icon paths and URLs
+        """
+        # Generate unique filename
+        ext = get_file_extension(file.filename)
+        filename = f"agent_{agent_id}_{uuid.uuid4()}.{ext}"
+        icon_dir = os.path.join(self.storage_path, "icons") # Store in 'icons' subdirectory
+        
+        # Ensure 'icons' subdirectory exists
+        os.makedirs(icon_dir, exist_ok=True)
+        
+        file_path = os.path.join(icon_dir, filename)
+        
+        # Read file content
+        content = await file.read()
+        
+        # Save original file
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        # Return paths
+        result = {
+            "filename": filename,
+            "path": file_path,
+            "url": f"/icons/{filename}",  # This would be handled by a static file server
+        }
+        
+        return result
+    
     def _generate_avatar_thumbnails(self, file_path: str, filename: str) -> Dict[str, str]:
         """
         Generate avatar thumbnails of different sizes
