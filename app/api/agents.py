@@ -1,7 +1,8 @@
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func # Import func for count
 
 # Import DifyService and DifyApiException
 from app.services.dify import DifyService, DifyApiException
@@ -11,6 +12,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.models.department import Department
 from app.schemas import agent as schemas
+from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated # Import new response models
 from app.core.deps import get_current_user, get_admin_user
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from app.services.file_storage import FileStorageService
@@ -19,28 +21,28 @@ from loguru import logger
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
 
-@router.get("", response_model=List[schemas.Agent])
+@router.get("", response_model=UnifiedResponsePaginated[schemas.Agent]) # Modified response_model
 async def get_agents(
-    skip: int = 0,
-    limit: int = 100,
-    name: Optional[str] = None,
-    is_active: Optional[bool] = None,
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    name: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
-    获取 Agent 列表 (管理员)
+    获取 Agent 列表 (管理员，分页，按更新日期倒序)
 
     获取系统中的 Agent 列表，支持分页和过滤（按名称、是否激活）。仅管理员可访问。
 
     Args:
-        skip (int): 跳过的记录数 (分页)。
-        limit (int): 返回的最大记录数 (分页)。
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
         name (Optional[str]): 按 Agent 名称过滤 (模糊匹配)。
         is_active (Optional[bool]): 按 Agent 激活状态过滤。
 
     Returns:
-        List[schemas.Agent]: Agent 列表。
+        UnifiedResponsePaginated[schemas.Agent]: 包含 Agent 列表和分页信息的统一返回对象。
     """
     # Build query with filters
     query = db.query(Agent)
@@ -51,13 +53,29 @@ async def get_agents(
     if is_active is not None:
         query = query.filter(Agent.is_active == is_active)
     
-    # Execute query with pagination
-    agents = query.offset(skip).limit(limit).all()
-    
-    return agents
+    # 计算 skip
+    skip = (page - 1) * page_size
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # Execute query with pagination and sorting
+    agents = query.order_by(Agent.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=agents,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
-@router.post("", response_model=schemas.Agent)
+@router.post("", response_model=UnifiedResponseSingle[schemas.Agent]) # Modified response_model
 async def create_agent(
     agent_data: schemas.AgentCreate, # Renamed input schema variable
     db: Session = Depends(get_db),
@@ -72,7 +90,7 @@ async def create_agent(
         agent_data (schemas.AgentCreate): 包含新 Agent 信息（包括 Dify API 密钥和端点）的请求体。
 
     Returns:
-        schemas.Agent: 创建成功的 Agent 信息。
+        UnifiedResponseSingle[schemas.Agent]: 包含创建成功的 Agent 信息的统一返回对象。
 
     Raises:
         HTTPException: 如果无法从 Dify 获取 Agent 信息或 Dify 凭据无效。
@@ -90,7 +108,7 @@ async def create_agent(
         if not fetched_name:
              raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not fetch 'name' from Dify /info endpoint. Please check API key and endpoint."
+                detail="从 Dify /info 端点获取 'name' 失败。请检查 API 密钥和端点。"
             )
             
         logger.info(f"Successfully fetched Dify app info: Name='{fetched_name}'")
@@ -104,14 +122,14 @@ async def create_agent(
         logger.error(f"Failed to fetch Dify app info or parameters: {e.detail}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to validate Dify credentials or fetch app info/parameters: {e.detail}"
+            detail=f"验证 Dify 凭据或获取应用信息/参数失败: {e.detail}"
         )
     finally:
         await temp_dify_service.close()
 
     # 2. Check if agent with the fetched name already exists locally
     if db.query(Agent).filter(Agent.name == fetched_name).first():
-        raise DuplicateResourceException("Agent", "name", fetched_name)
+        raise DuplicateResourceException("智能体", "name", fetched_name)
 
     # 3. Create agent object using fetched info and request data
     db_agent = Agent(
@@ -133,81 +151,142 @@ async def create_agent(
         db.commit()
         db.refresh(db_agent)
         logger.info(f"Agent created: {db_agent.name} (ID: {db_agent.id}) using info and parameters from Dify")
-        return db_agent
+        return UnifiedResponseSingle(data=db_agent) # Wrapped in UnifiedResponseSingle
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create agent due to database integrity error: {str(e)}")
         # Check if it's specifically a unique constraint violation on name (though checked earlier, race condition possible)
         if "UNIQUE constraint failed: agents.name" in str(e):
-             raise DuplicateResourceException("Agent", "name", fetched_name)
+             raise DuplicateResourceException("智能体", "name", fetched_name)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Database error while creating agent"
+            detail="创建智能体时数据库出错"
         )
 
 
 # Moved /available route before /{agent_id} to fix routing conflict
-@router.get("/available", response_model=List[schemas.AgentListItem], operation_id="get_available_agents")
+@router.get("/available", response_model=UnifiedResponsePaginated[schemas.AgentListItem], operation_id="get_available_agents") # Modified response_model
 async def get_available_agents(
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    获取当前用户可用的 Agent 列表
+    获取当前用户可用的 Agent 列表 (分页，按更新日期倒序)
 
-    获取当前登录用户有权访问的 Agent 列表。管理员可以访问所有激活的 Agent。普通用户根据全局、角色或部门权限访问 Agent。
+    获取当前登录用户有权访问的 Agent 列表，支持分页。管理员可以访问所有激活的 Agent。普通用户根据全局、角色或部门权限访问 Agent。
+
+    Args:
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
 
     Returns:
-        List[schemas.AgentListItem]: 当前用户可用的 Agent 列表。
+        UnifiedResponsePaginated[schemas.AgentListItem]: 包含当前用户可用的 Agent 列表和分页信息的统一返回对象。
     """
+    # Build base query for active agents
+    query = db.query(Agent).filter(Agent.is_active == True)
+
+    # Calculate skip
+    skip = (page - 1) * page_size
+
     # Admin can access all active agents
     if current_user.is_admin:
-        return db.query(Agent).filter(Agent.is_active == True).all()
-    
-    # Check for agents with global access
-    global_agents = db.query(Agent).join(
-        AgentPermission,
-        AgentPermission.agent_id == Agent.id
-    ).filter(
-        Agent.is_active == True,
-        AgentPermission.type == AgentPermissionType.GLOBAL
-    ).all()
-    
-    # Get user's roles
-    user_role_ids = [role.id for role in current_user.roles]
-    
-    # Get agents with role-based access for this user
-    role_agents = db.query(Agent).join(
-        AgentPermission,
-        AgentPermission.agent_id == Agent.id
-    ).filter(
-        Agent.is_active == True,
-        AgentPermission.type == AgentPermissionType.ROLE,
-        AgentPermission.role_id.in_(user_role_ids)
-    ).all()
-    
-    # Get agents with department-based access for this user
-    dept_agents = []
-    if current_user.department_id:
-        dept_agents = db.query(Agent).join(
+        # Get total count for admin
+        total_count = query.count()
+        # Apply pagination and sorting
+        agents = query.order_by(Agent.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+    else:
+        # For non-admin users, build a query based on permissions
+        # Check for agents with global access
+        global_agents_query = query.join(
             AgentPermission,
             AgentPermission.agent_id == Agent.id
         ).filter(
-            Agent.is_active == True,
-            AgentPermission.type == AgentPermissionType.DEPARTMENT,
-            AgentPermission.department_id == current_user.department_id
-        ).all()
-    
-    # Combine all unique agents
-    all_agents = {}
-    for agent in global_agents + role_agents + dept_agents:
-        if agent.id not in all_agents:
-            all_agents[agent.id] = agent
-    
-    return list(all_agents.values())
+            AgentPermission.type == AgentPermissionType.GLOBAL
+        )
+
+        # Get user's roles
+        user_role_ids = [role.id for role in current_user.roles]
+
+        # Get agents with role-based access for this user
+        role_agents_query = query.join(
+            AgentPermission,
+            AgentPermission.agent_id == Agent.id
+        ).filter(
+            AgentPermission.type == AgentPermissionType.ROLE,
+            AgentPermission.role_id.in_(user_role_ids)
+        )
+
+        # Get agents with department-based access for this user
+        dept_agents_query = None
+        if current_user.department_id:
+            dept_agents_query = query.join(
+                AgentPermission,
+                AgentPermission.agent_id == Agent.id
+            ).filter(
+                AgentPermission.type == AgentPermissionType.DEPARTMENT,
+                AgentPermission.department_id == current_user.department_id
+            )
+
+        # Combine all unique agents using UNION (or equivalent logic)
+        # SQLAlchemy's union_all is suitable here for combining query results before counting/paginating
+        combined_query = global_agents_query.union_all(role_agents_query)
+        if dept_agents_query:
+             combined_query = combined_query.union_all(dept_agents_query)
+
+        # To get the total count of unique agents, we need to execute the combined query and count the results
+        # This might not be the most efficient for very large datasets, but it's accurate.
+        # A more performant approach might involve subqueries or distinct counts depending on the DB.
+        # For now, we'll fetch all unique IDs and count.
+        # Note: This approach fetches all IDs first, which might still be large.
+        # A better approach for total count might be a subquery like:
+        # total_count = db.query(func.count()).select_from(combined_query.distinct().subquery()).scalar()
+        # Let's use the subquery approach for efficiency.
+
+        # Get total count of unique IDs
+        # Need to select a distinct column, e.g., Agent.id
+        combined_query_with_id = global_agents_query.with_entities(Agent.id).union_all(
+            role_agents_query.with_entities(Agent.id)
+        )
+        if dept_agents_query:
+             combined_query_with_id = combined_query_with_id.union_all(dept_agents_query.with_entities(Agent.id))
+
+        # Get total count of unique IDs
+        total_count = db.query(func.count()).select_from(combined_query_with_id.distinct().subquery()).scalar() or 0
 
 
-@router.get("/{agent_id}", response_model=schemas.AgentWithPermissions)
+        # Now, apply pagination to the actual agent objects.
+        # We need to get the paginated IDs first, then fetch the full agent objects.
+        # Apply sorting to the IDs query before pagination
+        paginated_ids_query = combined_query_with_id.distinct().order_by(Agent.updated_at.desc()).offset(skip).limit(page_size) # Added sorting
+        paginated_ids = [id_[0] for id_ in paginated_ids_query.all()]
+
+        # Fetch the full agent objects for the paginated IDs, maintaining order might be tricky
+        # For simplicity, we'll fetch and sort by ID, assuming that's acceptable.
+        # If a specific order is needed, a more complex query involving the original combined query with pagination
+        # and then joining to get full details would be required.
+        if paginated_ids:
+            # Fetch agents and sort them by updated_at in descending order
+            agents = db.query(Agent).filter(Agent.id.in_(paginated_ids)).order_by(Agent.updated_at.desc()).all() # Added sorting
+        else:
+            agents = []
+
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=agents,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
+
+
+@router.get("/{agent_id}", response_model=UnifiedResponseSingle[schemas.AgentWithPermissions]) # Modified response_model
 async def get_agent(
     agent_id: int,
     db: Session = Depends(get_db),
@@ -222,7 +301,7 @@ async def get_agent(
         agent_id (int): 要获取的 Agent ID。
 
     Returns:
-        schemas.AgentWithPermissions: 包含 Agent 详细信息和权限列表的响应模型。
+        UnifiedResponseSingle[schemas.AgentWithPermissions]: 包含 Agent 详细信息和权限列表的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的 Agent ID 不存在。
@@ -230,7 +309,7 @@ async def get_agent(
     # Get agent
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
-        raise ResourceNotFoundException("Agent", str(agent_id))
+        raise ResourceNotFoundException("智能体", str(agent_id))
     
     # Check if agent has global access
     global_access = db.query(AgentPermission).filter(
@@ -254,10 +333,10 @@ async def get_agent(
         global_access=global_access
     )
     
-    return result
+    return UnifiedResponseSingle(data=result) # Wrapped in UnifiedResponseSingle
 
 
-@router.put("/{agent_id}", response_model=schemas.Agent)
+@router.put("/{agent_id}", response_model=UnifiedResponseSingle[schemas.Agent]) # Modified response_model
 async def update_agent(
     agent_id: int,
     agent_update: schemas.AgentUpdate,
@@ -274,7 +353,7 @@ async def update_agent(
         agent_update (schemas.AgentUpdate): 包含要更新的 Agent 字段的请求体。
 
     Returns:
-        schemas.Agent: 更新后的 Agent 信息。
+        UnifiedResponseSingle[schemas.Agent]: 包含更新后的 Agent 信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的 Agent ID 不存在。
@@ -283,17 +362,17 @@ async def update_agent(
     # Get agent
     db_agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not db_agent:
-        raise ResourceNotFoundException("Agent", str(agent_id))
+        raise ResourceNotFoundException("智能体", str(agent_id))
     
     # Check for name uniqueness if changing
     if agent_update.name and agent_update.name != db_agent.name:
         if db.query(Agent).filter(Agent.name == agent_update.name).first():
-            raise DuplicateResourceException("Agent", "name", agent_update.name)
+            raise DuplicateResourceException("智能体", "name", agent_update.name)
         db_agent.name = agent_update.name
     
     # Update other fields if provided
     if agent_update.description is not None:
-        db_agent.description = agent_update.description # Corrected typo
+        db_agent.description = agent_agent_update.description # Corrected typo
     
     if agent_update.icon is not None:
         db_agent.icon = agent_update.icon
@@ -330,7 +409,7 @@ async def update_agent(
             logger.error(f"Failed to fetch Dify app parameters during update: {e.detail}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to validate new Dify credentials or fetch app parameters: {e.detail}"
+                detail=f"验证新的 Dify 凭据或获取应用参数失败: {e.detail}"
             )
         finally:
             await temp_dify_service.close()
@@ -340,7 +419,7 @@ async def update_agent(
     db.refresh(db_agent)
 
     logger.info(f"Agent updated: {db_agent.name} (ID: {db_agent.id})")
-    return db_agent
+    return UnifiedResponseSingle(data=db_agent) # Wrapped in UnifiedResponseSingle
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -356,7 +435,7 @@ async def delete_agent(
 
     Args:
         agent_id (int): 要删除的 Agent ID。
-
+    
     Returns:
         None: 成功时不返回内容 (HTTP 204)。
 
@@ -366,7 +445,7 @@ async def delete_agent(
     # Get agent
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
-        raise ResourceNotFoundException("Agent", str(agent_id))
+        raise ResourceNotFoundException("智能体", str(agent_id))
     
     # Delete agent
     db.delete(agent)
@@ -375,8 +454,7 @@ async def delete_agent(
     logger.info(f"Agent deleted: {agent.name} (ID: {agent.id})")
 
 
-# Apply the new response model here
-@router.post("/{agent_id}/permissions", response_model=schemas.AgentPermissionsResponse)
+@router.post("/{agent_id}/permissions", response_model=UnifiedResponseSingle[schemas.AgentPermissionsResponse]) # Modified response_model
 async def set_agent_permissions(
     agent_id: int,
     permissions: schemas.AgentPermissions,
@@ -393,7 +471,7 @@ async def set_agent_permissions(
         permissions (schemas.AgentPermissions): 包含权限设置信息的请求体。
 
     Returns:
-        schemas.AgentPermissionsResponse: 包含更新后的 Agent ID、权限列表和全局访问状态的响应模型。
+        UnifiedResponseSingle[schemas.AgentPermissionsResponse]: 包含更新后的 Agent ID、权限列表和全局访问状态的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的 Agent ID、角色 ID 或部门 ID 不存在。
@@ -402,7 +480,7 @@ async def set_agent_permissions(
     # Check if agent exists
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
-        raise ResourceNotFoundException("Agent", str(agent_id))
+        raise ResourceNotFoundException("智能体", str(agent_id))
     
     # Delete existing permissions
     db.query(AgentPermission).filter(AgentPermission.agent_id == agent_id).delete()
@@ -421,13 +499,13 @@ async def set_agent_permissions(
                 if not perm.role_id:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Role ID is required for role type permission"
+                        detail="角色类型权限需要角色 ID"
                     )
                 
                 # Verify role exists
                 role = db.query(Role).filter(Role.id == perm.role_id).first()
                 if not role:
-                    raise ResourceNotFoundException("Role", str(perm.role_id))
+                    raise ResourceNotFoundException("角色", str(perm.role_id))
                 
                 db.add(AgentPermission(
                     agent_id=agent_id,
@@ -439,13 +517,13 @@ async def set_agent_permissions(
                 if not perm.department_id:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Department ID is required for department type permission"
+                        detail="部门类型权限需要部门 ID"
                     )
                 
                 # Verify department exists
                 dept = db.query(Department).filter(Department.id == perm.department_id).first()
                 if not dept:
-                    raise ResourceNotFoundException("Department", str(perm.department_id))
+                    raise ResourceNotFoundException("部门", str(perm.department_id))
                 
                 db.add(AgentPermission(
                     agent_id=agent_id,
@@ -463,73 +541,17 @@ async def set_agent_permissions(
     
     global_access = any(p.type == AgentPermissionType.GLOBAL for p in updated_permissions)
     
-    return {
+    result = {
         "agent_id": agent_id,
         "permissions": updated_permissions,
         "global_access": global_access
     }
+    
+    return UnifiedResponseSingle(data=result) # Wrapped in UnifiedResponseSingle
+
 
 # Removed the original get_available_agents function from here
-@router.get("/available", response_model=List[schemas.AgentListItem])
-async def get_available_agents(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Any:
-    """
-    获取当前用户可用的 Agent 列表
-
-    获取当前登录用户有权访问的 Agent 列表。管理员可以访问所有激活的 Agent。普通用户根据全局、角色或部门权限访问 Agent。
-
-    Returns:
-        List[schemas.AgentListItem]: 当前用户可用的 Agent 列表。
-    """
-    # Admin can access all active agents
-    if current_user.is_admin:
-        return db.query(Agent).filter(Agent.is_active == True).all()
-    
-    # Check for agents with global access
-    global_agents = db.query(Agent).join(
-        AgentPermission,
-        AgentPermission.agent_id == Agent.id
-    ).filter(
-        Agent.is_active == True,
-        AgentPermission.type == AgentPermissionType.GLOBAL
-    ).all()
-    
-    # Get user's roles
-    user_role_ids = [role.id for role in current_user.roles]
-    
-    # Get agents with role-based access for this user
-    role_agents = db.query(Agent).join(
-        AgentPermission,
-        AgentPermission.agent_id == Agent.id
-    ).filter(
-        Agent.is_active == True,
-        AgentPermission.type == AgentPermissionType.ROLE,
-        AgentPermission.role_id.in_(user_role_ids)
-    ).all()
-    
-    # Get agents with department-based access for this user
-    dept_agents = []
-    if current_user.department_id:
-        dept_agents = db.query(Agent).join(
-            AgentPermission,
-            AgentPermission.agent_id == Agent.id
-        ).filter(
-            Agent.is_active == True,
-            AgentPermission.type == AgentPermissionType.DEPARTMENT,
-            AgentPermission.department_id == current_user.department_id
-        ).all()
-    
-    # Combine all unique agents
-    all_agents = {}
-    for agent in global_agents + role_agents + dept_agents:
-        if agent.id not in all_agents:
-            all_agents[agent.id] = agent
-    
-    return list(all_agents.values())
-
-@router.post("/{agent_id}/icon")
+@router.post("/{agent_id}/icon", response_model=UnifiedResponseSingle[schemas.AgentIconUploadResponse]) # Modified response_model
 async def upload_agent_icon(
     agent_id: int,
     file: UploadFile = File(...),
@@ -546,7 +568,7 @@ async def upload_agent_icon(
         file (UploadFile): 要上传的图标文件。
 
     Returns:
-        Dict[str, Any]: 包含图标 URL 的字典。
+        UnifiedResponseSingle[schemas.AgentIconUploadResponse]: 包含图标 URL 的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的 Agent ID 不存在。
@@ -555,13 +577,13 @@ async def upload_agent_icon(
     # Get agent
     db_agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not db_agent:
-        raise ResourceNotFoundException("Agent", str(agent_id))
+        raise ResourceNotFoundException("智能体", str(agent_id))
 
     # Validate file type (optional, but recommended for icons)
     if not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be an image"
+            detail="无效的文件类型。只允许上传图片。"
         )
 
     # Save icon using FileStorageService
@@ -575,4 +597,5 @@ async def upload_agent_icon(
 
     logger.info(f"Agent icon updated for agent ID {agent_id}")
 
-    return {"url": db_agent.icon}
+    # Return UnifiedResponseSingle
+    return UnifiedResponseSingle(data={"url": db_agent.icon})

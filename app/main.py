@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
+from app.schemas.response import UnifiedResponseSingle
+
 from app.config import settings
 from app.api import auth, users, roles, departments, menus, agents, chat
 from app.utils.logger import setup_logging

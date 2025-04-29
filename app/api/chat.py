@@ -63,20 +63,20 @@ async def chat_completions(
         if "agent_id" not in request.inputs:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="agent_id is required in inputs for a new conversation"
+                detail="对于新对话，inputs 中必须包含 agent_id"
             )
         agent_id = request.inputs["agent_id"]
 
         # Get agent
         agent = db.query(Agent).filter(Agent.id == agent_id).first()
         if not agent:
-            raise ResourceNotFoundException("Agent", str(agent_id))
+            raise ResourceNotFoundException("智能体", str(agent_id))
 
         # Check if agent is active
         if not agent.is_active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="This agent is currently not available"
+                detail="此智能体当前不可用"
             )
 
         # Check if user has access to this agent
@@ -97,7 +97,7 @@ async def chat_completions(
             if not user_has_access:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have access to this agent"
+                    detail="您无权访问此智能体"
                 )
 
         # Set up Dify API with the agent's credentials
@@ -113,7 +113,7 @@ async def chat_completions(
         ).first()
 
         if not local_conversation:
-            raise ResourceNotFoundException("Conversation", request.conversation_id)
+            raise ResourceNotFoundException("对话", request.conversation_id)
 
         agent_id = local_conversation.agent_id
 
@@ -122,7 +122,7 @@ async def chat_completions(
         if not agent:
              # This indicates a data inconsistency, handle appropriately
              logger.error(f"Agent ID {agent_id} not found for conversation {request.conversation_id}")
-             raise HTTPException(status_code=500, detail="Associated agent not found.")
+             raise HTTPException(status_code=500, detail="未找到关联的智能体。")
 
         # Re-check user access to the agent for existing conversations
         if not current_user.is_admin:
@@ -142,7 +142,7 @@ async def chat_completions(
             if not user_has_access:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have access to this agent's conversations"
+                    detail="您无权访问此智能体的对话"
                 )
 
         # Set up Dify API with the agent's credentials from the found agent
@@ -160,7 +160,7 @@ async def chat_completions(
                 if not file_info.url:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"URL is required for remote file at index {idx}"
+                        detail=f"索引 {idx} 处的远程文件需要 URL"
                     )
 
                 files_data.append({
@@ -173,7 +173,7 @@ async def chat_completions(
                 if not file_info.upload_file_id:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Upload file ID is required for local file at index {idx}"
+                        detail=f"索引 {idx} 处的本地文件需要上传文件 ID"
                     )
 
                 files_data.append({
@@ -222,7 +222,7 @@ async def chat_completions(
             # Handle case where generator might be empty unexpectedly
             if final_response is None:
                  logger.error("Blocking chat response generator yielded no result.")
-                 raise HTTPException(status_code=500, detail="Failed to get chat response.")
+                 raise HTTPException(status_code=500, detail="获取聊天响应失败。")
 
             # --- Handle local conversation record after successful Dify response ---
             if is_new_conversation:
@@ -263,7 +263,7 @@ async def chat_completions(
              raise
         except Exception as e:
             logger.exception(f"Error in chat completions (blocking): {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"内部服务器错误: {str(e)}")
         finally:
             # Close the custom Dify service if it was created
             if custom_dify_service:
@@ -434,7 +434,7 @@ async def stop_generation(
     ).first()
 
     if not local_conversation:
-        raise ResourceNotFoundException("Conversation", request.conversation_id)
+        raise ResourceNotFoundException("对话", request.conversation_id)
 
     agent_id = local_conversation.agent_id
     logger.debug(f"Stopping generation for conversation ID: {request.conversation_id}, local agent_id: {agent_id}")
@@ -443,7 +443,7 @@ async def stop_generation(
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
          logger.error(f"Agent ID {agent_id} not found for conversation {request.conversation_id}")
-         raise HTTPException(status_code=500, detail="Associated agent not found.")
+         raise HTTPException(status_code=500, detail="未找到关联的智能体。")
 
     # 3. Re-check user access to the agent
     if not current_user.is_admin:
@@ -463,7 +463,7 @@ async def stop_generation(
         if not user_has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to stop generation for this agent's conversations"
+                detail="您无权停止此智能体对话的生成"
             )
 
     # 4. Set up Dify API with the agent's credentials
@@ -491,7 +491,7 @@ async def stop_generation(
         raise
     except Exception as e:
         logger.exception(f"Error in stop generation: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"内部服务器错误: {str(e)}")
     finally:
         # Close the custom Dify service
         if custom_dify_service:
@@ -552,7 +552,7 @@ async def get_conversation_messages_history( # Renamed function
     ).first()
 
     if not local_conversation:
-        raise ResourceNotFoundException("Conversation", conversation_id)
+        raise ResourceNotFoundException("对话", conversation_id)
 
     agent_id = local_conversation.agent_id
     logger.debug(f"Fetching conversation messages for conversation ID: {conversation_id}, local agent_id: {agent_id}")
@@ -561,7 +561,7 @@ async def get_conversation_messages_history( # Renamed function
     agent = db.query(Agent).filter(Agent.id == agent_id).first()
     if not agent:
          logger.error(f"Agent ID {agent_id} not found for conversation {conversation_id}")
-         raise HTTPException(status_code=500, detail="Associated agent not found.")
+         raise HTTPException(status_code=500, detail="未找到关联的智能体。")
 
     # Re-check user access to the agent
     if not current_user.is_admin:
@@ -581,7 +581,7 @@ async def get_conversation_messages_history( # Renamed function
         if not user_has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this agent's conversations"
+                detail="您无权访问此智能体的对话"
             )
 
     # Set up Dify API with the agent's credentials from the found agent
@@ -637,13 +637,13 @@ async def get_conversation_messages_history( # Renamed function
     except DifyApiException as e:
         logger.error(f"Error fetching conversation details: {str(e)}")
         if e.status_code == 404:
-            raise ResourceNotFoundException("Conversation", conversation_id)
+            raise ResourceNotFoundException("对话", conversation_id)
         raise
     except Exception as e:
         logger.exception(f"Error fetching conversation details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching conversation details: {str(e)}"
+            detail=f"获取对话详情时出错: {str(e)}"
         )
     finally:
         # Close the custom Dify service
@@ -683,7 +683,7 @@ async def upload_document(
     if agent_id is None:
          raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="agent_id is required for file upload"
+            detail="文件上传需要 agent_id"
          )
 
     try:
@@ -693,7 +693,7 @@ async def upload_document(
         # Get agent
         agent = db.query(Agent).filter(Agent.id == agent_id).first()
         if not agent:
-            raise ResourceNotFoundException("Agent", str(agent_id))
+            raise ResourceNotFoundException("智能体", str(agent_id))
 
         # Check if user has access to this agent
         if not current_user.is_admin:
@@ -713,7 +713,7 @@ async def upload_document(
             if not user_has_access:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have access to this agent"
+                    detail="您无权访问此智能体"
                 )
 
         # Use agent's Dify credentials
@@ -741,13 +741,13 @@ async def upload_document(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"文件验证失败: {str(e)}"
         )
     except Exception as e:
         logger.exception(f"Error uploading document: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error uploading document: {str(e)}"
+            detail=f"上传文档时出错: {str(e)}"
         )
     finally:
         # Close the custom Dify service
@@ -786,13 +786,13 @@ async def deep_thinking(
     # Get agent
     agent = db.query(Agent).filter(Agent.id == request.agent_id).first()
     if not agent:
-        raise ResourceNotFoundException("Agent", str(request.agent_id))
+        raise ResourceNotFoundException("智能体", str(request.agent_id))
 
     # Check if agent is active
     if not agent.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This agent is currently not available"
+            detail="此智能体当前不可用"
         )
 
     # Check if user has access to this agent
@@ -821,7 +821,7 @@ async def deep_thinking(
         if not user_has_access:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this agent"
+                detail="您无权访问此智能体"
             )
 
     # Set up Dify API with the agent's credentials
@@ -895,7 +895,7 @@ async def delete_conversation(
     ).first()
 
     if not local_conversation:
-        raise ResourceNotFoundException("Conversation", conversation_id)
+        raise ResourceNotFoundException("对话", conversation_id)
 
     # 2. Get the associated Agent's credentials
     agent = db.query(Agent).filter(Agent.id == local_conversation.agent_id).first()
@@ -940,7 +940,7 @@ async def delete_conversation(
     except Exception as e:
         db.rollback()
         logger.exception(f"Error deleting local conversation record {conversation_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete local conversation: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"删除本地对话记录失败: {str(e)}")
 
     return {"detail": "Conversation deleted successfully"}
 
@@ -1057,5 +1057,5 @@ async def get_chat_history(
         logger.exception(f"Error fetching chat history from local DB: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching chat history: {str(e)}"
+            detail=f"获取聊天记录时出错: {str(e)}"
         )

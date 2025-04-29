@@ -22,7 +22,7 @@ class AppException(HTTPException):
 
 class UserNotFoundException(AppException):
     """Exception raised when a user is not found"""
-    def __init__(self, detail: str = "User not found"):
+    def __init__(self, detail: str = "用户未找到"):
         super().__init__(
             detail=detail,
             status_code=status.HTTP_404_NOT_FOUND,
@@ -32,7 +32,7 @@ class UserNotFoundException(AppException):
 
 class InvalidCredentialsException(AppException):
     """Exception raised when credentials are invalid"""
-    def __init__(self, detail: str = "Incorrect username or password"):
+    def __init__(self, detail: str = "用户名或密码错误"):
         super().__init__(
             detail=detail,
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -42,7 +42,7 @@ class InvalidCredentialsException(AppException):
 
 class PermissionDeniedException(AppException):
     """Exception raised when user doesn't have required permissions"""
-    def __init__(self, detail: str = "Permission denied"):
+    def __init__(self, detail: str = "权限不足"):
         super().__init__(
             detail=detail,
             status_code=status.HTTP_403_FORBIDDEN,
@@ -54,7 +54,7 @@ class ResourceNotFoundException(AppException):
     """Exception raised when a resource is not found"""
     def __init__(self, resource_type: str, resource_id: str):
         super().__init__(
-            detail=f"{resource_type} with id {resource_id} not found",
+            detail=f"未找到 ID 为 {resource_id} 的 {resource_type}",
             status_code=status.HTTP_404_NOT_FOUND,
             code="resource_not_found"
         )
@@ -64,7 +64,7 @@ class DuplicateResourceException(AppException):
     """Exception raised when a resource already exists"""
     def __init__(self, resource_type: str, field: str, value: str):
         super().__init__(
-            detail=f"{resource_type} with {field} '{value}' already exists",
+            detail=f"字段为 {field}，值为 '{value}' 的 {resource_type} 已存在",
             status_code=status.HTTP_409_CONFLICT,
             code="duplicate_resource"
         )
@@ -94,7 +94,7 @@ class FileTooLargeException(AppException):
     """Exception raised when an uploaded file is too large"""
     def __init__(self, max_size: int):
         super().__init__(
-            detail=f"File too large. Maximum size is {max_size / (1024 * 1024):.1f} MB",
+            detail=f"文件过大。最大允许大小为 {max_size / (1024 * 1024):.1f} MB",
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             code="file_too_large"
         )
@@ -104,7 +104,7 @@ class InvalidFileTypeException(AppException):
     """Exception raised when an uploaded file has an invalid type"""
     def __init__(self, supported_types: list):
         super().__init__(
-            detail=f"Invalid file type. Supported types: {', '.join(supported_types)}",
+            detail=f"无效的文件类型。支持的类型: {', '.join(supported_types)}",
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             code="invalid_file_type"
         )

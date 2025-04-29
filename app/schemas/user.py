@@ -83,6 +83,10 @@ class UserProfile(BaseModel):
         from_attributes = True
 
 
+# Schema for avatar upload response
+class UserAvatarUploadResponse(BaseModel):
+    url: str
+    thumbnails: Optional[dict] = None
 # Schema for user login
 class UserLogin(BaseModel):
     username: str

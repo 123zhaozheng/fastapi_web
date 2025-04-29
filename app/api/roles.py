@@ -1,5 +1,5 @@
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -9,6 +9,7 @@ from app.models.menu import Menu, Button
 from app.models.user import User
 from app.schemas import role as schemas
 from app.schemas import user as user_schemas
+from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated
 from app.core.deps import get_current_user, get_admin_user
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from loguru import logger
@@ -16,26 +17,26 @@ from loguru import logger
 router = APIRouter(prefix="/roles", tags=["Roles"])
 
 
-@router.get("", response_model=List[schemas.Role])
+@router.get("", response_model=UnifiedResponsePaginated[schemas.Role])
 async def get_roles(
-    skip: int = 0,
-    limit: int = 100,
-    name: Optional[str] = None,
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    name: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
-    获取角色列表 (管理员)
+    获取角色列表 (管理员，分页，按更新日期倒序)
 
     获取系统中的角色列表，支持分页和按名称过滤。仅管理员可访问。
 
     Args:
-        skip (int): 跳过的记录数 (分页)。
-        limit (int): 返回的最大记录数 (分页)。
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
         name (Optional[str]): 按角色名称过滤 (模糊匹配)。
 
     Returns:
-        List[schemas.Role]: 角色列表。
+        UnifiedResponsePaginated[schemas.Role]: 包含角色列表和分页信息的统一返回对象。
     """
     # Build query with filters
     query = db.query(Role)
@@ -43,13 +44,29 @@ async def get_roles(
     if name:
         query = query.filter(Role.name.ilike(f"%{name}%"))
     
-    # Execute query with pagination
-    roles = query.offset(skip).limit(limit).all()
-    
-    return roles
+    # 计算 skip
+    skip = (page - 1) * page_size
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # Execute query with pagination and sorting
+    roles = query.order_by(Role.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=roles,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
-@router.post("", response_model=schemas.Role)
+@router.post("", response_model=UnifiedResponseSingle[schemas.Role])
 async def create_role(
     role: schemas.RoleCreate,
     db: Session = Depends(get_db),
@@ -64,7 +81,7 @@ async def create_role(
         role (schemas.RoleCreate): 包含新角色信息和权限 ID 列表的请求体。
 
     Returns:
-        schemas.Role: 创建成功的角色信息。
+        UnifiedResponseSingle[schemas.Role]: 包含创建成功的角色信息的统一返回对象。
 
     Raises:
         DuplicateResourceException: 如果角色名称已存在。
@@ -73,7 +90,7 @@ async def create_role(
     """
     # Check if role name exists
     if db.query(Role).filter(Role.name == role.name).first():
-        raise DuplicateResourceException("Role", "name", role.name)
+        raise DuplicateResourceException("角色", "name", role.name)
     
     # Create role object
     db_role = Role(
@@ -93,7 +110,7 @@ async def create_role(
             # Some menu IDs are invalid
             missing_ids = set(role.menu_ids) - {menu.id for menu in menus}
             db.rollback()
-            raise ResourceNotFoundException("Menu", str(missing_ids))
+            raise ResourceNotFoundException("菜单", str(missing_ids))
         
         for menu in menus:
             db.add(RoleMenu(role_id=db_role.id, menu_id=menu.id))
@@ -105,7 +122,7 @@ async def create_role(
             # Some button IDs are invalid
             missing_ids = set(role.button_ids) - {button.id for button in buttons}
             db.rollback()
-            raise ResourceNotFoundException("Button", str(missing_ids))
+            raise ResourceNotFoundException("按钮", str(missing_ids))
         
         for button in buttons:
             db.add(RoleButton(role_id=db_role.id, button_id=button.id))
@@ -115,17 +132,17 @@ async def create_role(
         db.commit()
         db.refresh(db_role)
         logger.info(f"Role created: {db_role.name} (ID: {db_role.id})")
-        return db_role
+        return UnifiedResponseSingle(data=db_role)
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create role: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Database error while creating role"
+            detail="创建角色时数据库出错" # This line was already correct, maybe the line number shifted? Let's try with the original English text search again.
         )
 
 
-@router.get("/{role_id}", response_model=schemas.RoleWithPermissions)
+@router.get("/{role_id}", response_model=UnifiedResponseSingle[schemas.RoleWithPermissions])
 async def get_role(
     role_id: int,
     db: Session = Depends(get_db),
@@ -140,7 +157,7 @@ async def get_role(
         role_id (int): 要获取的角色 ID。
 
     Returns:
-        schemas.RoleWithPermissions: 包含角色详细信息和权限列表的响应模型。
+        UnifiedResponseSingle[schemas.RoleWithPermissions]: 包含角色详细信息和权限列表的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的角色 ID 不存在。
@@ -148,7 +165,7 @@ async def get_role(
     # Get role with counts
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Get menu IDs for this role
     menu_ids = [rm.menu_id for rm in role.menu_permissions]
@@ -171,10 +188,10 @@ async def get_role(
         users_count=users_count
     )
     
-    return result
+    return UnifiedResponseSingle(data=result)
 
 
-@router.put("/{role_id}", response_model=schemas.Role)
+@router.put("/{role_id}", response_model=UnifiedResponseSingle[schemas.Role])
 async def update_role(
     role_id: int,
     role_update: schemas.RoleUpdate,
@@ -191,7 +208,7 @@ async def update_role(
         role_update (schemas.RoleUpdate): 包含要更新的角色字段的请求体。
 
     Returns:
-        schemas.Role: 更新后的角色信息。
+        UnifiedResponseSingle[schemas.Role]: 包含更新后的角色信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的角色 ID 不存在。
@@ -200,12 +217,12 @@ async def update_role(
     # Get role
     db_role = db.query(Role).filter(Role.id == role_id).first()
     if not db_role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Check for name uniqueness if changing
     if role_update.name and role_update.name != db_role.name:
         if db.query(Role).filter(Role.name == role_update.name).first():
-            raise DuplicateResourceException("Role", "name", role_update.name)
+            raise DuplicateResourceException("角色", "name", role_update.name)
         db_role.name = role_update.name
     
     # Update other fields if provided
@@ -220,7 +237,7 @@ async def update_role(
     db.refresh(db_role)
     
     logger.info(f"Role updated: {db_role.name} (ID: {db_role.id})")
-    return db_role
+    return UnifiedResponseSingle(data=db_role)
 
 
 @router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -249,12 +266,12 @@ async def delete_role(
     # Get role
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Check if role has users
     if role.users and not force:
         raise InvalidOperationException(
-            f"Role has {len(role.users)} assigned users. Use force=true to delete anyway."
+            f"角色已分配给 {len(role.users)} 个用户。如需强制删除，请使用 force=true。"
         )
     
     # Delete role
@@ -264,28 +281,28 @@ async def delete_role(
     logger.info(f"Role deleted: {role.name} (ID: {role.id})")
 
 
-@router.get("/{role_id}/users", response_model=List[user_schemas.User])
+@router.get("/{role_id}/users", response_model=UnifiedResponsePaginated[user_schemas.User])
 async def get_users_by_role(
     role_id: int,
-    skip: int = 0,
-    limit: int = 100,
-    username: Optional[str] = None,
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    username: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
-    获取拥有指定角色的用户列表 (管理员)
+    获取拥有指定角色的用户列表 (管理员，分页，按更新日期倒序)
 
     根据角色 ID 获取拥有该角色的用户列表，支持分页和按用户名过滤。仅管理员可访问。
 
     Args:
         role_id (int): 要查询用户的角色 ID。
-        skip (int): 跳过的记录数 (分页)。
-        limit (int): 返回的最大记录数 (分页)。
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
         username (Optional[str]): 按用户名过滤 (模糊匹配)。
 
     Returns:
-        List[user_schemas.User]: 拥有指定角色的用户列表。
+        UnifiedResponsePaginated[user_schemas.User]: 包含拥有指定角色的用户列表和分页信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的角色 ID 不存在。
@@ -293,7 +310,7 @@ async def get_users_by_role(
     # Check if role exists
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Query users with this role
     query = db.query(User).filter(User.roles.any(Role.id == role_id))
@@ -302,10 +319,26 @@ async def get_users_by_role(
     if username:
         query = query.filter(User.username.ilike(f"%{username}%"))
     
-    # Apply pagination
-    users = query.offset(skip).limit(limit).all()
-    
-    return users
+    # 计算 skip
+    skip = (page - 1) * page_size
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # Apply pagination and sorting
+    users = query.order_by(User.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=users,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
 @router.post("/{role_id}/users", status_code=status.HTTP_204_NO_CONTENT)
@@ -333,14 +366,14 @@ async def add_users_to_role(
     # Check if role exists
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Get users
     users = db.query(User).filter(User.id.in_(user_ids)).all()
     if len(users) != len(user_ids):
         # Some user IDs are invalid
         missing_ids = set(user_ids) - {user.id for user in users}
-        raise ResourceNotFoundException("User", str(missing_ids))
+        raise ResourceNotFoundException("用户", str(missing_ids))
     
     # Add role to users
     for user in users:
@@ -377,7 +410,7 @@ async def assign_menus_to_role(
     # Check if role exists
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Delete existing menu permissions
     db.query(RoleMenu).filter(RoleMenu.role_id == role_id).delete()
@@ -387,7 +420,7 @@ async def assign_menus_to_role(
     if len(menus) != len(menu_ids):
         # Some menu IDs are invalid
         missing_ids = set(menu_ids) - {menu.id for menu in menus}
-        raise ResourceNotFoundException("Menu", str(missing_ids))
+        raise ResourceNotFoundException("菜单", str(missing_ids))
     
     # Add new menu permissions
     for menu in menus:
@@ -423,7 +456,7 @@ async def assign_buttons_to_role(
     # Check if role exists
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
-        raise ResourceNotFoundException("Role", str(role_id))
+        raise ResourceNotFoundException("角色", str(role_id))
     
     # Delete existing button permissions
     db.query(RoleButton).filter(RoleButton.role_id == role_id).delete()
@@ -433,7 +466,7 @@ async def assign_buttons_to_role(
     if len(buttons) != len(button_ids):
         # Some button IDs are invalid
         missing_ids = set(button_ids) - {button.id for button in buttons}
-        raise ResourceNotFoundException("Button", str(missing_ids))
+        raise ResourceNotFoundException("按钮", str(missing_ids))
     
     # Add new button permissions
     for button in buttons:

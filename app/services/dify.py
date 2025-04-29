@@ -94,7 +94,7 @@ class DifyService:
                 
         except httpx.RequestError as e:
             logger.error(f"Error connecting to Dify API: {str(e)}")
-            raise DifyApiException(f"Error connecting to Dify API: {str(e)}")
+            raise DifyApiException(f"连接 Dify API 时出错: {str(e)}")
     
     async def _stream_response(self, url: str, payload: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -131,8 +131,9 @@ class DifyService:
                              # Fallback if decoding fails
                             detail = f"Non-decodable error body (status: {response.status_code})"
 
+                    # 保留 Dify 返回的原始 detail
                     raise DifyApiException(
-                        f"Dify API error: {detail}",
+                        f"Dify API 错误: {detail}",
                         status_code=response.status_code
                     )
 
@@ -156,7 +157,7 @@ class DifyService:
                                 
         except httpx.RequestError as e:
             logger.error(f"Error streaming from Dify API: {str(e)}")
-            raise DifyApiException(f"Error streaming from Dify API: {str(e)}")
+            raise DifyApiException(f"从 Dify API 流式传输时出错: {str(e)}")
     
     async def stop_generation(self, task_id: str, user: str) -> Dict[str, Any]:
         """
@@ -190,7 +191,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error stopping generation: {str(e)}")
-            raise DifyApiException(f"Error stopping generation: {str(e)}")
+            raise DifyApiException(f"停止生成时出错: {str(e)}")
     
     async def upload_file(self, file: UploadFile, user: str) -> Dict[str, Any]:
         """
@@ -233,7 +234,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error uploading file to Dify: {str(e)}")
-            raise DifyApiException(f"Error uploading file to Dify: {str(e)}")
+            raise DifyApiException(f"上传文件到 Dify 时出错: {str(e)}")
     
     async def get_conversations(
         self,
@@ -302,7 +303,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error fetching conversations from Dify: {str(e)}")
-            raise DifyApiException(f"Error fetching conversations: {str(e)}")
+            raise DifyApiException(f"获取对话列表时出错: {str(e)}")
 
     # TODO: Verify if the 'GET /conversations/{conversation_id}' endpoint exists in the target Dify API version.
     # The provided documentation did not explicitly list this endpoint.
@@ -340,7 +341,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error fetching conversation details from Dify: {str(e)}")
-            raise DifyApiException(f"Error fetching conversation details: {str(e)}")
+            raise DifyApiException(f"获取对话详情时出错: {str(e)}")
     
     async def get_conversation_messages(
         self,
@@ -395,7 +396,7 @@ class DifyService:
 
         except httpx.RequestError as e:
             logger.error(f"Error fetching messages from Dify: {str(e)}")
-            raise DifyApiException(f"Error fetching messages: {str(e)}")
+            raise DifyApiException(f"获取消息列表时出错: {str(e)}")
 
     async def feedback_message(
         self,
@@ -437,7 +438,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error sending message feedback to Dify: {str(e)}")
-            raise DifyApiException(f"Error sending message feedback: {str(e)}")
+            raise DifyApiException(f"发送消息反馈时出错: {str(e)}")
 
     async def get_suggested_questions(
         self,
@@ -470,7 +471,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error getting suggested questions from Dify: {str(e)}")
-            raise DifyApiException(f"Error getting suggested questions: {str(e)}")
+            raise DifyApiException(f"获取建议问题时出错: {str(e)}")
 
     async def rename_conversation(
         self,
@@ -515,7 +516,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error renaming conversation in Dify: {str(e)}")
-            raise DifyApiException(f"Error renaming conversation: {str(e)}")
+            raise DifyApiException(f"重命名对话时出错: {str(e)}")
 
     async def delete_conversation(
         self,
@@ -553,7 +554,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error deleting conversation in Dify: {str(e)}")
-            raise DifyApiException(f"Error deleting conversation: {str(e)}")
+            raise DifyApiException(f"删除对话时出错: {str(e)}")
 
     async def audio_to_text(
         self,
@@ -591,7 +592,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error converting audio to text via Dify: {str(e)}")
-            raise DifyApiException(f"Error converting audio to text: {str(e)}")
+            raise DifyApiException(f"音频转文本时出错: {str(e)}")
 
     async def text_to_audio(
         self,
@@ -637,8 +638,9 @@ class DifyService:
                     detail = response.text or f"HTTP Error {response.status_code}"
                 
                 logger.error(f"Dify API error (text-to-audio): {detail} - Status: {response.status_code}")
+                # 保留 Dify 返回的原始 detail
                 raise DifyApiException(
-                    f"Dify API error (text-to-audio): {detail}",
+                    f"Dify API 错误 (文本转音频): {detail}",
                     status_code=response.status_code
                 )
                 
@@ -647,7 +649,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error converting text to audio via Dify: {str(e)}")
-            raise DifyApiException(f"Error converting text to audio: {str(e)}")
+            raise DifyApiException(f"文本转音频时出错: {str(e)}")
     
     def _handle_error_response(self, response: httpx.Response):
         """
@@ -674,8 +676,9 @@ class DifyService:
             code = "unknown_error"
 
         logger.error(f"Dify API error: {detail} - Status: {response.status_code} - Code: {code}")
+        # 保留 Dify 返回的原始 detail
         raise DifyApiException(
-            detail=f"Dify API error: {detail}",
+            detail=f"Dify API 错误: {detail}",
             status_code=response.status_code,
             code=code
         )
@@ -704,7 +707,7 @@ class DifyService:
             
         except httpx.RequestError as e:
             logger.error(f"Error fetching app info from Dify: {str(e)}")
-            raise DifyApiException(f"Error fetching app info: {str(e)}")
+            raise DifyApiException(f"获取应用信息时出错: {str(e)}")
 
     async def get_app_parameters(self) -> Dict[str, Any]:
         """
@@ -730,4 +733,4 @@ class DifyService:
 
         except httpx.RequestError as e:
             logger.error(f"Error fetching app parameters from Dify: {str(e)}")
-            raise DifyApiException(f"Error fetching app parameters: {str(e)}")
+            raise DifyApiException(f"获取应用参数时出错: {str(e)}")

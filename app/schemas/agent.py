@@ -115,3 +115,7 @@ class AgentListItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+class AgentIconUploadResponse(BaseModel):
+    """Response model for agent icon upload"""
+    url: str

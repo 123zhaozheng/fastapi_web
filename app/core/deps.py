@@ -35,12 +35,20 @@ def get_current_user(
     """
     logger.debug("Entering get_current_user")
     try:
+        # Log the received token (partially for security)
+        token_start = token[:10] if token else "None"
+        token_end = token[-10:] if token and len(token) > 20 else ""
+        logger.debug(f"Received token: {token_start}...{token_end}")
+
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        logger.debug(f"Decoded payload: {payload}") # Log decoded payload
         token_data = TokenPayload(**payload)
-    except (JWTError, ValidationError):
+        logger.debug(f"Validated token data: {token_data}")
+    except (JWTError, ValidationError) as e:
+        logger.error(f"Token validation failed: {e}") # Log validation error
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="无法验证凭据",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -51,14 +59,14 @@ def get_current_user(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            detail="用户未找到",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user",
+            detail="用户未激活",
         )
 
     logger.debug(f"Exiting get_current_user with user: {user.id if user else 'None'}")
@@ -98,7 +106,7 @@ def get_admin_user(
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="The user doesn't have enough privileges",
+            detail="用户权限不足",
         )
     
     return current_user
@@ -139,7 +147,7 @@ def check_permission(
     if not has_permission:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"The user doesn't have permission: {permission_key}",
+            detail=f"用户缺少权限: {permission_key}",
         )
     
     return True

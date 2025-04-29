@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.models.department import Department
 from app.schemas import user as schemas
+from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated
 from app.core.deps import get_current_user, get_admin_user, check_permission
 from app.core.security import get_password_hash, verify_password
 from app.services.file_storage import FileStorageService
@@ -17,7 +18,7 @@ from loguru import logger
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-@router.get("/me", response_model=schemas.UserProfile)
+@router.get("/me", response_model=UnifiedResponseSingle[schemas.UserProfile])
 async def get_current_user_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -28,7 +29,7 @@ async def get_current_user_profile(
     获取当前登录用户的详细资料信息。
 
     Returns:
-        schemas.UserProfile: 当前用户的资料信息。
+        UnifiedResponseSingle[schemas.UserProfile]: 包含当前用户资料信息的统一返回对象。
     """
     # Build role information
     role_ids = [role.id for role in current_user.roles]
@@ -57,10 +58,10 @@ async def get_current_user_profile(
         last_login=current_user.last_login
     )
     
-    return result
+    return UnifiedResponseSingle(data=result)
 
 
-@router.put("/profile", response_model=schemas.UserProfile)
+@router.put("/profile", response_model=UnifiedResponseSingle[schemas.UserProfile])
 async def update_user_profile(
     profile: schemas.UserProfileUpdate,
     db: Session = Depends(get_db),
@@ -75,7 +76,7 @@ async def update_user_profile(
         profile (schemas.UserProfileUpdate): 包含要更新的用户资料字段的请求体。
 
     Returns:
-        schemas.UserProfile: 更新后的用户资料信息。
+        UnifiedResponseSingle[schemas.UserProfile]: 包含更新后的用户资料信息的统一返回对象。
     """
     # Update user fields
     if profile.full_name is not None:
@@ -96,7 +97,7 @@ async def update_user_profile(
     role_names = [role.name for role in current_user.roles]
     department_name = current_user.department.name if current_user.department else None
     
-    return schemas.UserProfile(
+    result = schemas.UserProfile(
         id=current_user.id,
         username=current_user.username,
         email=current_user.email,
@@ -112,9 +113,11 @@ async def update_user_profile(
         created_at=current_user.created_at,
         last_login=current_user.last_login
     )
+    
+    return UnifiedResponseSingle(data=result)
 
 
-@router.post("/avatar")
+@router.post("/avatar", response_model=UnifiedResponseSingle[schemas.UserAvatarUploadResponse]) # Added response_model
 async def upload_avatar(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -129,7 +132,7 @@ async def upload_avatar(
         file (UploadFile): 要上传的头像文件。
 
     Returns:
-        Dict[str, Any]: 包含头像 URL 和缩略图信息的字典。
+        UnifiedResponseSingle[schemas.UserAvatarUploadResponse]: 包含头像 URL 和缩略图信息的统一返回对象。
 
     Raises:
         HTTPException: 如果上传的文件不是图片。
@@ -138,7 +141,7 @@ async def upload_avatar(
     if not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be an image"
+            detail="无效的文件类型。只允许上传图片。"
         )
     
     # Save avatar
@@ -149,7 +152,8 @@ async def upload_avatar(
     current_user.avatar = avatar_info["url"]
     db.commit()
     
-    return {"url": avatar_info["url"], "thumbnails": avatar_info.get("thumbnails", {})}
+    # Return UnifiedResponseSingle
+    return UnifiedResponseSingle(data={"url": avatar_info["url"], "thumbnails": avatar_info.get("thumbnails", {})})
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
@@ -176,7 +180,7 @@ async def change_password(
     if not verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect password"
+            detail="当前密码不正确"
         )
     
     # Update password
@@ -186,32 +190,32 @@ async def change_password(
     logger.info(f"Password changed for user ID {current_user.id}")
 
 
-@router.get("", response_model=List[schemas.User])
+@router.get("", response_model=UnifiedResponsePaginated[schemas.User])
 async def get_users(
-    skip: int = 0,
-    limit: int = 100,
-    username: Optional[str] = None,
-    email: Optional[str] = None,
-    is_active: Optional[bool] = None,
-    department_id: Optional[int] = None,
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    username: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    department_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
-    获取用户列表 (管理员)
+    获取用户列表 (管理员，分页，按更新日期倒序)
 
     获取系统中的用户列表，支持分页和过滤（按用户名、邮箱、是否激活、部门 ID）。仅管理员可访问。
 
     Args:
-        skip (int): 跳过的记录数 (分页)。
-        limit (int): 返回的最大记录数 (分页)。
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
         username (Optional[str]): 按用户名过滤 (模糊匹配)。
         email (Optional[str]): 按邮箱过滤 (模糊匹配)。
         is_active (Optional[bool]): 按用户激活状态过滤。
         department_id (Optional[int]): 按部门 ID 过滤。
 
     Returns:
-        List[schemas.User]: 用户列表。
+        UnifiedResponsePaginated[schemas.User]: 包含用户列表和分页信息的统一返回对象。
     """
     # Build query with filters
     query = db.query(User)
@@ -228,13 +232,29 @@ async def get_users(
     if department_id:
         query = query.filter(User.department_id == department_id)
     
-    # Execute query with pagination
-    users = query.offset(skip).limit(limit).all()
-    
-    return users
+    # 计算 skip
+    skip = (page - 1) * page_size
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # Execute query with pagination and sorting
+    users = query.order_by(User.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=users,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
-@router.post("", response_model=schemas.User)
+@router.post("", response_model=UnifiedResponseSingle[schemas.User])
 async def create_user(
     user: schemas.UserCreate,
     db: Session = Depends(get_db),
@@ -249,7 +269,7 @@ async def create_user(
         user (schemas.UserCreate): 包含新用户信息的请求体。
 
     Returns:
-        schemas.User: 创建成功的用户信息。
+        UnifiedResponseSingle[schemas.User]: 包含创建成功的用户信息的统一返回对象。
 
     Raises:
         DuplicateResourceException: 如果用户名或邮箱已存在。
@@ -258,15 +278,15 @@ async def create_user(
     """
     # Check if username exists
     if db.query(User).filter(User.username == user.username).first():
-        raise DuplicateResourceException("User", "username", user.username)
+        raise DuplicateResourceException("用户", "username", user.username)
     
     # Check if email exists
     if db.query(User).filter(User.email == user.email).first():
-        raise DuplicateResourceException("User", "email", user.email)
+        raise DuplicateResourceException("用户", "email", user.email)
     
     # Validate department if specified
     if user.department_id and not db.query(Department).filter(Department.id == user.department_id).first():
-        raise ResourceNotFoundException("Department", str(user.department_id))
+        raise ResourceNotFoundException("部门", str(user.department_id))
     
     # Create user object
     db_user = User(
@@ -293,7 +313,7 @@ async def create_user(
             # Some role IDs are invalid
             missing_ids = set(user.role_ids) - {role.id for role in roles}
             db.rollback()
-            raise ResourceNotFoundException("Role", str(missing_ids))
+            raise ResourceNotFoundException("角色", str(missing_ids))
         
         db_user.roles = roles
     else:
@@ -308,17 +328,17 @@ async def create_user(
         db.commit()
         db.refresh(db_user)
         logger.info(f"User created: {db_user.username} (ID: {db_user.id})")
-        return db_user
+        return UnifiedResponseSingle(data=db_user)
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create user: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Database error while creating user"
+            detail="创建用户时数据库出错"
         )
 
 
-@router.get("/{user_id}", response_model=schemas.User)
+@router.get("/{user_id}", response_model=UnifiedResponseSingle[schemas.User])
 async def get_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -333,19 +353,19 @@ async def get_user(
         user_id (int): 要获取的用户 ID。
 
     Returns:
-        schemas.User: 指定用户的详细信息。
+        UnifiedResponseSingle[schemas.User]: 包含指定用户详细信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的用户 ID 不存在。
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise ResourceNotFoundException("User", str(user_id))
+        raise ResourceNotFoundException("用户", str(user_id))
     
-    return user
+    return UnifiedResponseSingle(data=user)
 
 
-@router.put("/{user_id}", response_model=schemas.User)
+@router.put("/{user_id}", response_model=UnifiedResponseSingle[schemas.User])
 async def update_user(
     user_id: int,
     user_update: schemas.UserUpdate,
@@ -362,7 +382,7 @@ async def update_user(
         user_update (schemas.UserUpdate): 包含要更新的用户资料字段的请求体。
 
     Returns:
-        schemas.User: 更新后的用户信息。
+        UnifiedResponseSingle[schemas.User]: 包含更新后的用户信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的用户 ID 不存在。
@@ -372,18 +392,18 @@ async def update_user(
     # Get user
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user:
-        raise ResourceNotFoundException("User", str(user_id))
+        raise ResourceNotFoundException("用户", str(user_id))
     
     # Check for username uniqueness if changing
     if user_update.username and user_update.username != db_user.username:
         if db.query(User).filter(User.username == user_update.username).first():
-            raise DuplicateResourceException("User", "username", user_update.username)
+            raise DuplicateResourceException("用户", "username", user_update.username)
         db_user.username = user_update.username
     
     # Check for email uniqueness if changing
     if user_update.email and user_update.email != db_user.email:
         if db.query(User).filter(User.email == user_update.email).first():
-            raise DuplicateResourceException("User", "email", user_update.email)
+            raise DuplicateResourceException("用户", "email", user_update.email)
         db_user.email = user_update.email
     
     # Update other fields if provided
@@ -398,7 +418,7 @@ async def update_user(
     
     if user_update.department_id is not None:
         if user_update.department_id and not db.query(Department).filter(Department.id == user_update.department_id).first():
-            raise ResourceNotFoundException("Department", str(user_update.department_id))
+            raise ResourceNotFoundException("部门", str(user_update.department_id))
         db_user.department_id = user_update.department_id
     
     if user_update.is_admin is not None:
@@ -409,7 +429,7 @@ async def update_user(
     db.refresh(db_user)
     
     logger.info(f"User updated: {db_user.username} (ID: {db_user.id})")
-    return db_user
+    return UnifiedResponseSingle(data=db_user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -436,11 +456,11 @@ async def delete_user(
     # Get user
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise ResourceNotFoundException("User", str(user_id))
+        raise ResourceNotFoundException("用户", str(user_id))
 
     # Prevent self-deletion
     if user.id == current_user.id:
-        raise InvalidOperationException("Cannot delete your own account")
+        raise InvalidOperationException("不能删除自己的账户")
 
     # Delete user
     db.delete(user)
@@ -474,7 +494,7 @@ async def reset_user_password(
     # Get user
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise ResourceNotFoundException("User", str(user_id))
+        raise ResourceNotFoundException("用户", str(user_id))
     
     # Update password
     user.hashed_password = get_password_hash(password_data.new_password)
@@ -483,7 +503,7 @@ async def reset_user_password(
     logger.info(f"Password reset for user: {user.username} (ID: {user.id})")
 
 
-@router.post("/{user_id}/roles")
+@router.post("/{user_id}/roles", response_model=UnifiedResponseSingle[dict])
 async def assign_roles_to_user(
     user_id: int,
     role_ids: List[int],
@@ -500,7 +520,7 @@ async def assign_roles_to_user(
         role_ids (List[int]): 要分配的角色 ID 列表。
 
     Returns:
-        Dict[str, Any]: 包含用户 ID 和分配的角色 ID 列表的字典。
+        UnifiedResponseSingle[dict]: 包含用户 ID 和分配的角色 ID 列表的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的用户 ID 或角色 ID 不存在。
@@ -508,14 +528,14 @@ async def assign_roles_to_user(
     # Get user
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise ResourceNotFoundException("User", str(user_id))
+        raise ResourceNotFoundException("用户", str(user_id))
     
     # Get roles
     roles = db.query(Role).filter(Role.id.in_(role_ids)).all()
     if len(roles) != len(role_ids):
         # Some role IDs are invalid
         missing_ids = set(role_ids) - {role.id for role in roles}
-        raise ResourceNotFoundException("Role", str(missing_ids))
+        raise ResourceNotFoundException("角色", str(missing_ids))
     
     # Update user roles
     user.roles = roles
@@ -523,4 +543,5 @@ async def assign_roles_to_user(
     
     logger.info(f"Roles updated for user: {user.username} (ID: {user.id})")
     
-    return {"user_id": user.id, "role_ids": [role.id for role in user.roles]}
+    result = {"user_id": user.id, "role_ids": [role.id for role in user.roles]}
+    return UnifiedResponseSingle(data=result)

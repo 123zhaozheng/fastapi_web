@@ -1,5 +1,5 @@
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.menu import Menu, Button
 from app.models.user import User
 from app.schemas import menu as schemas
+from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated
 from app.core.deps import get_current_user, get_admin_user, check_permission
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from loguru import logger
@@ -14,28 +15,28 @@ from loguru import logger
 router = APIRouter(prefix="/menus", tags=["Menus"])
 
 
-@router.get("", response_model=List[schemas.Menu])
+@router.get("", response_model=UnifiedResponsePaginated[schemas.Menu])
 async def get_menus(
-    skip: int = 0,
-    limit: int = 100,
-    title: Optional[str] = None,
-    parent_id: Optional[int] = None,
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    title: Optional[str] = Query(None),
+    parent_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    获取菜单列表
+    获取菜单列表 (分页，按更新日期倒序)
 
     获取系统中的菜单列表，支持分页和过滤（按标题、父菜单 ID），并按排序字段排序。
 
     Args:
-        skip (int): 跳过的记录数 (分页)。
-        limit (int): 返回的最大记录数 (分页)。
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
         title (Optional[str]): 按菜单标题过滤 (模糊匹配)。
         parent_id (Optional[int]): 按父菜单 ID 过滤。
 
     Returns:
-        List[schemas.Menu]: 菜单列表。
+        UnifiedResponsePaginated[schemas.Menu]: 包含菜单列表和分页信息的统一返回对象。
     """
     # Build query with filters
     query = db.query(Menu)
@@ -46,13 +47,29 @@ async def get_menus(
     if parent_id is not None:
         query = query.filter(Menu.parent_id == parent_id)
     
-    # Execute query with pagination
-    menus = query.order_by(Menu.sort_order).offset(skip).limit(limit).all()
-    
-    return menus
+    # 计算 skip
+    skip = (page - 1) * page_size
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # Execute query with pagination and sorting
+    menus = query.order_by(Menu.updated_at.desc()).offset(skip).limit(page_size).all() # Changed sorting to updated_at desc
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=menus,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
-@router.post("", response_model=schemas.Menu)
+@router.post("", response_model=UnifiedResponseSingle[schemas.Menu])
 async def create_menu(
     menu: schemas.MenuCreate,
     db: Session = Depends(get_db),
@@ -67,7 +84,7 @@ async def create_menu(
         menu (schemas.MenuCreate): 包含新菜单信息的请求体。
 
     Returns:
-        schemas.Menu: 创建成功的菜单信息。
+        UnifiedResponseSingle[schemas.Menu]: 包含创建成功的菜单信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的父菜单 ID 不存在。
@@ -77,7 +94,7 @@ async def create_menu(
     if menu.parent_id:
         parent = db.query(Menu).filter(Menu.id == menu.parent_id).first()
         if not parent:
-            raise ResourceNotFoundException("Parent Menu", str(menu.parent_id))
+            raise ResourceNotFoundException("父菜单", str(menu.parent_id))
     
     # Create menu object
     db_menu = Menu(
@@ -100,17 +117,17 @@ async def create_menu(
         db.commit()
         db.refresh(db_menu)
         logger.info(f"Menu created: {db_menu.title} (ID: {db_menu.id})")
-        return db_menu
+        return UnifiedResponseSingle(data=db_menu)
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create menu: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Database error while creating menu"
+            detail="创建菜单时数据库出错"
         )
 
 
-@router.get("/tree", response_model=List[schemas.MenuNode])
+@router.get("/tree", response_model=UnifiedResponseSingle[List[schemas.MenuNode]])
 async def get_menu_tree(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -121,7 +138,7 @@ async def get_menu_tree(
     获取系统中的菜单层级树形结构，包含关联的按钮。
 
     Returns:
-        List[schemas.MenuNode]: 菜单树形结构的列表。
+        UnifiedResponseSingle[List[schemas.MenuNode]]: 包含菜单树形结构列表的统一返回对象。
     """
     # Get all menus
     menus = db.query(Menu).order_by(Menu.sort_order).all()
@@ -151,10 +168,10 @@ async def get_menu_tree(
     # Build tree starting from root menus (parent_id is None)
     tree = build_tree()
     
-    return tree
+    return UnifiedResponseSingle(data=tree)
 
 
-@router.get("/user/permissions", response_model=schemas.UserPermissions)
+@router.get("/user/permissions", response_model=UnifiedResponseSingle[schemas.UserPermissions])
 async def get_user_permissions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -165,7 +182,7 @@ async def get_user_permissions(
     获取当前登录用户有权访问的菜单树和按钮权限列表。管理员拥有所有权限。
 
     Returns:
-        schemas.UserPermissions: 包含用户菜单树和按钮权限列表的响应模型。
+        UnifiedResponseSingle[schemas.UserPermissions]: 包含用户菜单树和按钮权限列表的统一返回对象。
     """
     if current_user.is_admin:
         # Admin gets all menus and buttons
@@ -270,11 +287,15 @@ async def get_user_permissions(
         
         menu_tree = build_user_tree(None)
     
-    return schemas.UserPermissions(
+    result = schemas.UserPermissions(
         menus=menu_tree,
         buttons=button_permissions
     )
-@router.get("/{menu_id}", response_model=schemas.MenuWithButtons)
+    
+    return UnifiedResponseSingle(data=result)
+
+
+@router.get("/{menu_id}", response_model=UnifiedResponseSingle[schemas.MenuWithButtons])
 async def get_menu(
     menu_id: int,
     db: Session = Depends(get_db),
@@ -289,7 +310,7 @@ async def get_menu(
         menu_id (int): 要获取的菜单 ID。
 
     Returns:
-        schemas.MenuWithButtons: 包含菜单详细信息和按钮列表的响应模型。
+        UnifiedResponseSingle[schemas.MenuWithButtons]: 包含菜单详细信息和按钮列表的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的菜单 ID 不存在。
@@ -297,12 +318,12 @@ async def get_menu(
     # Get menu
     menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not menu:
-        raise ResourceNotFoundException("Menu", str(menu_id))
+        raise ResourceNotFoundException("菜单", str(menu_id))
     
-    return menu
+    return UnifiedResponseSingle(data=menu)
 
 
-@router.put("/{menu_id}", response_model=schemas.Menu)
+@router.put("/{menu_id}", response_model=UnifiedResponseSingle[schemas.Menu])
 async def update_menu(
     menu_id: int,
     menu_update: schemas.MenuUpdate,
@@ -319,7 +340,7 @@ async def update_menu(
         menu_update (schemas.MenuUpdate): 包含要更新的菜单字段的请求体。
 
     Returns:
-        schemas.Menu: 更新后的菜单信息。
+        UnifiedResponseSingle[schemas.Menu]: 包含更新后的菜单信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的菜单 ID 或父菜单 ID 不存在。
@@ -328,23 +349,23 @@ async def update_menu(
     # Get menu
     db_menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not db_menu:
-        raise ResourceNotFoundException("Menu", str(menu_id))
+        raise ResourceNotFoundException("菜单", str(menu_id))
     
     # Validate and update parent_id if provided
     if menu_update.parent_id is not None:
         if menu_update.parent_id == menu_id:
-            raise InvalidOperationException("Menu cannot be its own parent")
+            raise InvalidOperationException("菜单不能是自身的父级")
             
         if menu_update.parent_id:
             parent = db.query(Menu).filter(Menu.id == menu_update.parent_id).first()
             if not parent:
-                raise ResourceNotFoundException("Parent Menu", str(menu_update.parent_id))
+                raise ResourceNotFoundException("父菜单", str(menu_update.parent_id))
                 
             # Check for circular reference
             current_parent = parent
             while current_parent:
                 if current_parent.id == menu_id:
-                    raise InvalidOperationException("Circular menu reference detected")
+                    raise InvalidOperationException("检测到循环菜单引用")
                 current_parent = current_parent.parent
                 
         db_menu.parent_id = menu_update.parent_id
@@ -379,7 +400,7 @@ async def update_menu(
     db.refresh(db_menu)
     
     logger.info(f"Menu updated: {db_menu.title} (ID: {db_menu.id})")
-    return db_menu
+    return UnifiedResponseSingle(data=db_menu)
 
 
 @router.delete("/{menu_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -408,19 +429,19 @@ async def delete_menu(
     # Get menu
     menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not menu:
-        raise ResourceNotFoundException("Menu", str(menu_id))
+        raise ResourceNotFoundException("菜单", str(menu_id))
     
     # Check if menu has child menus
     child_menus = db.query(Menu).filter(Menu.parent_id == menu_id).count()
     if child_menus > 0 and not force:
         raise InvalidOperationException(
-            f"Menu has {child_menus} child menus. Use force=true to delete anyway."
+            f"菜单下有 {child_menus} 个子菜单。如需强制删除，请使用 force=true。"
         )
     
     # Check if menu has buttons
     if menu.buttons and not force:
         raise InvalidOperationException(
-            f"Menu has {len(menu.buttons)} buttons. Use force=true to delete anyway."
+            f"菜单下有 {len(menu.buttons)} 个按钮。如需强制删除，请使用 force=true。"
         )
     
     # Delete menu
@@ -430,9 +451,7 @@ async def delete_menu(
     logger.info(f"Menu deleted: {menu.title} (ID: {menu.id})")
 
 
-
-
-@router.post("/{menu_id}/buttons", response_model=schemas.Button)
+@router.post("/{menu_id}/buttons", response_model=UnifiedResponseSingle[schemas.Button])
 async def create_button(
     menu_id: int,
     button: schemas.ButtonCreate,
@@ -449,7 +468,7 @@ async def create_button(
         button (schemas.ButtonCreate): 包含新按钮信息的请求体。
 
     Returns:
-        schemas.Button: 创建成功的按钮信息。
+        UnifiedResponseSingle[schemas.Button]: 包含创建成功的按钮信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的菜单 ID 不存在。
@@ -459,11 +478,11 @@ async def create_button(
     # Check if menu exists
     menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not menu:
-        raise ResourceNotFoundException("Menu", str(menu_id))
+        raise ResourceNotFoundException("菜单", str(menu_id))
     
     # Check if permission key is unique
     if db.query(Button).filter(Button.permission_key == button.permission_key).first():
-        raise DuplicateResourceException("Button", "permission_key", button.permission_key)
+        raise DuplicateResourceException("按钮", "permission_key", button.permission_key)
     
     # Create button object
     db_button = Button(
@@ -483,17 +502,17 @@ async def create_button(
         db.commit()
         db.refresh(db_button)
         logger.info(f"Button created: {db_button.name} (ID: {db_button.id}) for menu {menu_id}")
-        return db_button
+        return UnifiedResponseSingle(data=db_button)
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create button: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Database error while creating button"
+            detail="创建按钮时数据库出错"
         )
 
 
-@router.put("/buttons/{button_id}", response_model=schemas.Button)
+@router.put("/buttons/{button_id}", response_model=UnifiedResponseSingle[schemas.Button])
 async def update_button(
     button_id: int,
     button_update: schemas.ButtonUpdate,
@@ -510,7 +529,7 @@ async def update_button(
         button_update (schemas.ButtonUpdate): 包含要更新的按钮字段的请求体。
 
     Returns:
-        schemas.Button: 更新后的按钮信息。
+        UnifiedResponseSingle[schemas.Button]: 包含更新后的按钮信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的按钮 ID 不存在。
@@ -519,12 +538,12 @@ async def update_button(
     # Get button
     db_button = db.query(Button).filter(Button.id == button_id).first()
     if not db_button:
-        raise ResourceNotFoundException("Button", str(button_id))
+        raise ResourceNotFoundException("按钮", str(button_id))
     
     # Check permission key uniqueness if changing
     if button_update.permission_key and button_update.permission_key != db_button.permission_key:
         if db.query(Button).filter(Button.permission_key == button_update.permission_key).first():
-            raise DuplicateResourceException("Button", "permission_key", button_update.permission_key)
+            raise DuplicateResourceException("按钮", "permission_key", button_update.permission_key)
         db_button.permission_key = button_update.permission_key
     
     # Update other fields if provided
@@ -545,7 +564,7 @@ async def update_button(
     db.refresh(db_button)
     
     logger.info(f"Button updated: {db_button.name} (ID: {db_button.id})")
-    return db_button
+    return UnifiedResponseSingle(data=db_button)
 
 
 @router.delete("/buttons/{button_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -571,7 +590,7 @@ async def delete_button(
     # Get button
     button = db.query(Button).filter(Button.id == button_id).first()
     if not button:
-        raise ResourceNotFoundException("Button", str(button_id))
+        raise ResourceNotFoundException("按钮", str(button_id))
     
     # Delete button
     db.delete(button)

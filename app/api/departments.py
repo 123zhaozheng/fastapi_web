@@ -1,5 +1,5 @@
 from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.department import Department
 from app.models.user import User
 from app.schemas import department as schemas
+from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated
 from app.core.deps import get_current_user, get_admin_user
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from loguru import logger
@@ -14,28 +15,28 @@ from loguru import logger
 router = APIRouter(prefix="/departments", tags=["Departments"])
 
 
-@router.get("", response_model=List[schemas.Department])
+@router.get("", response_model=UnifiedResponsePaginated[schemas.Department])
 async def get_departments(
-    skip: int = 0,
-    limit: int = 100,
-    name: Optional[str] = None,
-    parent_id: Optional[int] = None,
+    page: int = Query(1, ge=1, description="页码，从1开始"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    name: Optional[str] = Query(None),
+    parent_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user) # Changed to require admin user
 ) -> Any:
     """
-    获取部门列表
+    获取部门列表 (管理员，分页，按更新日期倒序) # Updated docstring title
 
-    获取系统中的部门列表，支持分页和过滤（按名称、父部门 ID）。
+    获取系统中的部门列表，支持分页和过滤（按名称、父部门 ID）。仅管理员可访问。 # Added admin note to docstring
 
     Args:
-        skip (int): 跳过的记录数 (分页)。
-        limit (int): 返回的最大记录数 (分页)。
+        page (int): 页码，从1开始。
+        page_size (int): 每页返回的数量。
         name (Optional[str]): 按部门名称过滤 (模糊匹配)。
         parent_id (Optional[int]): 按父部门 ID 过滤。
 
     Returns:
-        List[schemas.Department]: 部门列表。
+        UnifiedResponsePaginated[schemas.Department]: 包含部门列表和分页信息的统一返回对象。
     """
     # Build query with filters
     query = db.query(Department)
@@ -46,13 +47,29 @@ async def get_departments(
     if parent_id is not None:
         query = query.filter(Department.parent_id == parent_id)
     
-    # Execute query with pagination
-    departments = query.offset(skip).limit(limit).all()
-    
-    return departments
+    # 计算 skip
+    skip = (page - 1) * page_size
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # Execute query with pagination and sorting
+    departments = query.order_by(Department.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+
+    # Calculate total pages
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    # Return data in UnifiedResponsePaginated format
+    return UnifiedResponsePaginated(
+        data=departments,
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 
-@router.post("", response_model=schemas.Department)
+@router.post("", response_model=UnifiedResponseSingle[schemas.Department])
 async def create_department(
     department: schemas.DepartmentCreate,
     db: Session = Depends(get_db),
@@ -67,7 +84,7 @@ async def create_department(
         department (schemas.DepartmentCreate): 包含新部门信息的请求体。
 
     Returns:
-        schemas.Department: 创建成功的部门信息。
+        UnifiedResponseSingle[schemas.Department]: 包含创建成功的部门信息的统一返回对象。
 
     Raises:
         DuplicateResourceException: 如果部门名称已存在。
@@ -76,19 +93,19 @@ async def create_department(
     """
     # Check if department name exists
     if db.query(Department).filter(Department.name == department.name).first():
-        raise DuplicateResourceException("Department", "name", department.name)
+        raise DuplicateResourceException("部门", "name", department.name)
     
     # Validate parent department if specified
     if department.parent_id:
         parent = db.query(Department).filter(Department.id == department.parent_id).first()
         if not parent:
-            raise ResourceNotFoundException("Parent Department", str(department.parent_id))
+            raise ResourceNotFoundException("父部门", str(department.parent_id))
     
     # Validate manager if specified
     if department.manager_id:
         manager = db.query(User).filter(User.id == department.manager_id).first()
         if not manager:
-            raise ResourceNotFoundException("Manager (User)", str(department.manager_id))
+            raise ResourceNotFoundException("负责人 (用户)", str(department.manager_id))
     
     # Create department object
     db_department = Department(
@@ -106,17 +123,17 @@ async def create_department(
         db.commit()
         db.refresh(db_department)
         logger.info(f"Department created: {db_department.name} (ID: {db_department.id})")
-        return db_department
+        return UnifiedResponseSingle(data=db_department)
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create department: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Database error while creating department"
+            detail="创建部门时数据库出错"
         )
 
 
-@router.get("/tree", response_model=List[schemas.DepartmentNode])
+@router.get("/tree", response_model=UnifiedResponseSingle[List[schemas.DepartmentNode]])
 async def get_department_tree(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -127,13 +144,10 @@ async def get_department_tree(
     获取系统中的部门层级树形结构。
 
     Returns:
-        List[schemas.DepartmentNode]: 部门树形结构的列表。
+        UnifiedResponseSingle[List[schemas.DepartmentNode]]: 包含部门树形结构列表的统一返回对象。
     """
     # Get all departments
     departments = db.query(Department).all()
-    
-    # Build department dictionary
-    dept_dict = {dept.id: dept for dept in departments}
     
     # Helper function to build tree recursively
     def build_tree(parent_id=None):
@@ -160,8 +174,10 @@ async def get_department_tree(
     # Build tree starting from root departments (parent_id is None)
     tree = build_tree()
     
-    return tree
-@router.get("/{dept_id}", response_model=schemas.DepartmentDetail)
+    return UnifiedResponseSingle(data=tree)
+
+
+@router.get("/{dept_id}", response_model=UnifiedResponseSingle[schemas.DepartmentDetail])
 async def get_department(
     dept_id: int,
     db: Session = Depends(get_db),
@@ -176,7 +192,7 @@ async def get_department(
         dept_id (int): 要获取的部门 ID。
 
     Returns:
-        schemas.DepartmentDetail: 包含部门详细信息的响应模型。
+        UnifiedResponseSingle[schemas.DepartmentDetail]: 包含部门详细信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的部门 ID 不存在。
@@ -184,7 +200,7 @@ async def get_department(
     # Get department
     department = db.query(Department).filter(Department.id == dept_id).first()
     if not department:
-        raise ResourceNotFoundException("Department", str(dept_id))
+        raise ResourceNotFoundException("部门", str(dept_id))
     
     # Get parent name if exists
     parent_name = None
@@ -212,10 +228,10 @@ async def get_department(
         users_count=users_count
     )
     
-    return result
+    return UnifiedResponseSingle(data=result)
 
 
-@router.put("/{dept_id}", response_model=schemas.Department)
+@router.put("/{dept_id}", response_model=UnifiedResponseSingle[schemas.Department])
 async def update_department(
     dept_id: int,
     department_update: schemas.DepartmentUpdate,
@@ -232,7 +248,7 @@ async def update_department(
         department_update (schemas.DepartmentUpdate): 包含要更新的部门字段的请求体。
 
     Returns:
-        schemas.Department: 更新后的部门信息。
+        UnifiedResponseSingle[schemas.Department]: 包含更新后的部门信息的统一返回对象。
 
     Raises:
         ResourceNotFoundException: 如果指定的部门 ID、父部门 ID 或经理用户 ID 不存在。
@@ -242,29 +258,29 @@ async def update_department(
     # Get department
     db_department = db.query(Department).filter(Department.id == dept_id).first()
     if not db_department:
-        raise ResourceNotFoundException("Department", str(dept_id))
+        raise ResourceNotFoundException("部门", str(dept_id))
     
     # Check for name uniqueness if changing
     if department_update.name and department_update.name != db_department.name:
         if db.query(Department).filter(Department.name == department_update.name).first():
-            raise DuplicateResourceException("Department", "name", department_update.name)
+            raise DuplicateResourceException("部门", "name", department_update.name)
         db_department.name = department_update.name
     
     # Validate and update parent_id if provided
     if department_update.parent_id is not None:
         if department_update.parent_id == dept_id:
-            raise InvalidOperationException("Department cannot be its own parent")
+            raise InvalidOperationException("部门不能是自身的父级")
             
         if department_update.parent_id:
             parent = db.query(Department).filter(Department.id == department_update.parent_id).first()
             if not parent:
-                raise ResourceNotFoundException("Parent Department", str(department_update.parent_id))
+                raise ResourceNotFoundException("父部门", str(department_update.parent_id))
                 
             # Check for circular reference
             current_parent = parent
             while current_parent:
                 if current_parent.id == dept_id:
-                    raise InvalidOperationException("Circular department reference detected")
+                    raise InvalidOperationException("检测到循环部门引用")
                 current_parent = current_parent.parent
                 
         db_department.parent_id = department_update.parent_id
@@ -274,7 +290,7 @@ async def update_department(
         if department_update.manager_id:
             manager = db.query(User).filter(User.id == department_update.manager_id).first()
             if not manager:
-                raise ResourceNotFoundException("Manager (User)", str(department_update.manager_id))
+                raise ResourceNotFoundException("负责人 (用户)", str(department_update.manager_id))
         db_department.manager_id = department_update.manager_id
     
     # Update description if provided
@@ -286,7 +302,7 @@ async def update_department(
     db.refresh(db_department)
     
     logger.info(f"Department updated: {db_department.name} (ID: {db_department.id})")
-    return db_department
+    return UnifiedResponseSingle(data=db_department)
 
 
 @router.delete("/{dept_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -315,19 +331,19 @@ async def delete_department(
     # Get department
     department = db.query(Department).filter(Department.id == dept_id).first()
     if not department:
-        raise ResourceNotFoundException("Department", str(dept_id))
+        raise ResourceNotFoundException("部门", str(dept_id))
     
     # Check if department has child departments
     child_departments = db.query(Department).filter(Department.parent_id == dept_id).count()
     if child_departments > 0 and not force:
         raise InvalidOperationException(
-            f"Department has {child_departments} child departments. Use force=true to delete anyway."
+            f"部门下有 {child_departments} 个子部门。如需强制删除，请使用 force=true。"
         )
     
     # Check if department has users
     if department.users and not force:
         raise InvalidOperationException(
-            f"Department has {len(department.users)} assigned users. Use force=true to delete anyway."
+            f"部门下有 {len(department.users)} 个用户。如需强制删除，请使用 force=true。"
         )
     
     # Delete department

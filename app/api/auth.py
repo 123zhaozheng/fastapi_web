@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.token import Token, RefreshToken
 from app.schemas.user import UserLogin
+from app.schemas.response import UnifiedResponseSingle
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -36,7 +37,7 @@ async def login(
         db (Session): 数据库会话依赖。
 
     Returns:
-        Token: 包含访问令牌、刷新令牌和令牌类型的响应模型。
+        UnifiedResponseSingle[Token]: 包含访问令牌、刷新令牌和令牌类型的统一返回对象。
 
     Raises:
         InvalidCredentialsException: 如果提供的凭据无效或用户账户被禁用。
@@ -46,11 +47,12 @@ async def login(
     
     if not user or not verify_password(user_credentials.password, user.hashed_password):
         logger.warning(f"Login failed: Invalid credentials for user {user_credentials.username}")
+        # 使用 exceptions.py 中定义的默认中文消息 "用户名或密码错误"
         raise InvalidCredentialsException()
     
     if not user.is_active:
         logger.warning(f"Login failed: Inactive user {user_credentials.username}")
-        raise InvalidCredentialsException("Account is disabled")
+        raise InvalidCredentialsException("账户已被禁用")
     
     # Update last login timestamp
     user.last_login = datetime.utcnow()
@@ -62,11 +64,13 @@ async def login(
     
     logger.info(f"User {user.username} logged in successfully")
     
-    return {
+    result = {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer"
     }
+    
+    return result
 
 
 @router.post("/login/form", response_model=Token)
@@ -84,7 +88,7 @@ async def login_form(
         db (Session): 数据库会话依赖。
 
     Returns:
-        Token: 包含访问令牌、刷新令牌和令牌类型的响应模型。
+        Token: 包含访问令牌、刷新令牌和令牌类型的统一返回对象。
 
     Raises:
         InvalidCredentialsException: 如果提供的凭据无效或用户账户被禁用。
@@ -98,11 +102,12 @@ async def login_form(
 
     if not user or not verify_password(form_data.password, user.hashed_password):
         logger.warning(f"Login failed: Invalid credentials for user {form_data.username}")
+        # 使用 exceptions.py 中定义的默认中文消息 "用户名或密码错误"
         raise InvalidCredentialsException()
 
     if not user.is_active:
         logger.warning(f"Login failed: Inactive user {form_data.username}")
-        raise InvalidCredentialsException("Account is disabled")
+        raise InvalidCredentialsException("账户已被禁用")
 
     # Update last login timestamp
     user.last_login = datetime.utcnow()
@@ -116,11 +121,13 @@ async def login_form(
     logger.info(f"User {user.username} logged in successfully via form")
     logger.debug(f"Exiting login_form for user: {user.username}")
 
-    return {
+    result = {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer"
     }
+    
+    return result
 
 
 @router.post("/refresh", response_model=Token)
@@ -138,7 +145,7 @@ async def refresh_token_endpoint(
         db (Session): 数据库会话依赖。
 
     Returns:
-        Token: 包含新的访问令牌、刷新令牌和令牌类型的响应模型。
+        UnifiedResponseSingle[Token]: 包含新的访问令牌、刷新令牌和令牌类型的统一返回对象。
 
     Raises:
         HTTPException: 如果提供的刷新令牌无效或已过期。
@@ -155,7 +162,7 @@ async def refresh_token_endpoint(
         if payload.get("type") != "refresh":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token",
+                detail="无效的刷新令牌",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -168,7 +175,7 @@ async def refresh_token_endpoint(
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token or inactive user",
+                detail="无效的刷新令牌或用户未激活",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -178,16 +185,18 @@ async def refresh_token_endpoint(
         
         logger.info(f"Tokens refreshed for user {user.username}")
         
-        return {
+        result = {
             "access_token": new_access_token,
             "refresh_token": new_refresh_token,
             "token_type": "bearer"
         }
         
+        return result
+        
     except JWTError:
         logger.warning("Token refresh failed: Invalid refresh token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+            detail="无效的刷新令牌",
             headers={"WWW-Authenticate": "Bearer"},
         )
