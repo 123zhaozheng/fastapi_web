@@ -1,0 +1,36 @@
+version: '3.8' # 使用较新的 Docker Compose 版本
+
+services:
+  db:
+    image: postgres:13-alpine # 使用 PostgreSQL 13 Alpine 镜像，更轻量
+    container_name: fastapi_db # 容器名称 (可选)
+    env_file:
+      - .env # 从 .env 文件加载环境变量 (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # 将命名卷挂载到容器内的数据目录，实现数据持久化
+    ports:
+      - "15432:5432" # 将容器的 5432 端口映射到宿主机的 15432 端口 (可选，方便本地调试)
+    restart: always # 容器退出时总是自动重启
+    healthcheck: # 添加健康检查，确保数据库准备就绪
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: . # 根据当前目录下的 Dockerfile 构建镜像
+    container_name: fastapi_web # 容器名称 (可选)
+    env_file:
+      - .env # 从 .env 文件加载环境变量 (包括数据库连接信息 PGHOST=db, SECRET_KEY 等)
+    depends_on:
+      db: # 依赖于 db 服务
+        condition: service_healthy # 等待 db 服务健康检查通过后再启动
+    ports:
+      - "15000:5000" # 将容器的 15000 端口映射到宿主机的 5000 端口
+    volumes:
+      - .:/app # 将当前目录挂载到容器的 /app 目录 (假设 WORKDIR 是 /app)，用于开发环境代码热重载
+      - ./uploads:/app/uploads # 将宿主机的 uploads 目录挂载到容器的 /app/uploads，用于持久化上传文件 (请确保应用代码使用 /app/uploads)
+    restart: always # 容器退出时总是自动重启
+
+volumes:
+  postgres_data: # 定义命名卷，用于持久化 PostgreSQL 数据
