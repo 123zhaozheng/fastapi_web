@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload # Import selectinload
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
@@ -217,9 +217,9 @@ async def get_users(
     Returns:
         UnifiedResponsePaginated[schemas.User]: 包含用户列表和分页信息的统一返回对象。
     """
-    # Build query with filters
-    query = db.query(User)
-    
+    # Build query with filters and eager load roles
+    query = db.query(User).options(selectinload(User.roles)) # Eager load roles
+
     if username:
         query = query.filter(User.username.ilike(f"%{username}%"))
     
@@ -358,7 +358,8 @@ async def get_user(
     Raises:
         ResourceNotFoundException: 如果指定的用户 ID 不存在。
     """
-    user = db.query(User).filter(User.id == user_id).first()
+    # Query user and eager load roles
+    user = db.query(User).options(selectinload(User.roles)).filter(User.id == user_id).first() # Eager load roles
     if not user:
         raise ResourceNotFoundException("用户", str(user_id))
     

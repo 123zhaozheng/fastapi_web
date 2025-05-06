@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
+from .role import Role
 
 
 # Base User Schema
@@ -57,6 +58,7 @@ class User(UserBase):
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None
+    roles: List[Role] = []  # Add roles field
 
     class Config:
         from_attributes = True

@@ -234,7 +234,7 @@ async def chat_completions(
                 else:
                     new_local_conversation = Conversation(
                         conversation_id=dify_conversation_id,
-                        final_query=request.query, # Store the initial query
+                        final_query=request.query[:100] if len(request.query) > 100 else request.query, # Store truncated query if needed
                         user_id=current_user.id,
                         agent_id=agent_id # Use the agent_id determined earlier
                     )
@@ -245,7 +245,7 @@ async def chat_completions(
 
             elif local_conversation:
                 # Update existing local conversation record
-                local_conversation.final_query = request.query # Update with the latest query
+                local_conversation.final_query = request.query[:100] if len(request.query) > 100 else request.query # Update with truncated query if needed
                 # updated_at is handled by onupdate=func.now()
                 db.commit()
                 db.refresh(local_conversation)
@@ -338,7 +338,7 @@ async def stream_chat_response(
                      try:
                          new_local_conversation = Conversation(
                              conversation_id=dify_conversation_id,
-                             final_query=query, # Store the initial query
+                             final_query=query[:100] if len(query) > 100 else query, # Store truncated query if needed
                              user_id=current_user_id,
                              agent_id=agent_id # Use the agent_id passed to the function
                          )
@@ -359,7 +359,7 @@ async def stream_chat_response(
 
                  elif local_conversation:
                      # Update existing local conversation record on message_end
-                     local_conversation.final_query = query # Update with the latest query
+                     local_conversation.final_query = query[:100] if len(query) > 100 else query # Update with truncated query if needed
                      # updated_at is handled by onupdate=func.now()
                      db.commit()
                      db.refresh(local_conversation)

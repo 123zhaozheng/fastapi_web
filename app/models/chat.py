@@ -33,7 +33,7 @@ class Conversation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(String(64), unique=True, index=True, nullable=False)
-    final_query = Column(String(255), nullable=True)
+    final_query = Column(String(255), nullable=True)  # Ensure length is sufficient for truncated query
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     agent_id = Column(Integer, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

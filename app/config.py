@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
-    POSTGRES_HOST: str = os.getenv("PGHOST", "137.184.113.70")
+    POSTGRES_HOST: str = os.getenv("PGHOST", "137.184.113")
     POSTGRES_PORT: str = os.getenv("PGPORT", "15432")
     POSTGRES_USER: str = os.getenv("PGUSER", "root")
     POSTGRES_PASSWORD: str = os.getenv("PGPASSWORD", "123456")
@@ -53,13 +53,13 @@ class Settings(BaseSettings):
         
         return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
     
-    @model_validator(mode="after")
-    def check_dify_api_key(self) -> "Settings":
-        if not self.DIFY_API_KEY:
-            # Log warning instead of raising error to allow app to start even if Dify API key is not set
-            # The app should handle missing API key gracefully in the Dify service
-            print("WARNING: DIFY_API_KEY not set. Dify API integration will not work.")
-        return self
+    # @model_validator(mode="after")
+    # def check_dify_api_key(self) -> "Settings":
+    #     if not self.DIFY_API_KEY:
+    #         # Log warning instead of raising error to allow app to start even if Dify API key is not set
+    #         # The app should handle missing API key gracefully in the Dify service
+    #         print("WARNING: DIFY_API_KEY not set. Dify API integration will not work.")
+    #     return self
 
 
 settings = Settings()
