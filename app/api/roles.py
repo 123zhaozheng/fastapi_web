@@ -20,7 +20,7 @@ router = APIRouter(prefix="/roles", tags=["Roles"])
 @router.get("", response_model=UnifiedResponsePaginated[schemas.Role])
 async def get_roles(
     page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    page_size: int = Query(999, ge=1, le=1000, description="每页数量，默认999条以获取所有数据"),
     name: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
@@ -32,7 +32,7 @@ async def get_roles(
 
     Args:
         page (int): 页码，从1开始。
-        page_size (int): 每页返回的数量。
+        page_size (int): 每页返回的数量，默认999条以获取所有数据。
         name (Optional[str]): 按角色名称过滤 (模糊匹配)。
 
     Returns:
@@ -285,7 +285,7 @@ async def delete_role(
 async def get_users_by_role(
     role_id: int,
     page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    page_size: int = Query(999, ge=1, le=1000, description="每页数量，默认999条以获取所有数据"),
     username: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
@@ -298,7 +298,7 @@ async def get_users_by_role(
     Args:
         role_id (int): 要查询用户的角色 ID。
         page (int): 页码，从1开始。
-        page_size (int): 每页返回的数量。
+        page_size (int): 每页返回的数量，默认999条以获取所有数据。
         username (Optional[str]): 按用户名过滤 (模糊匹配)。
 
     Returns:
