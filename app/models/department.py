@@ -28,6 +28,9 @@ class Department(Base):
     # Agent permissions
     agent_permissions = relationship("AgentPermission", back_populates="department", cascade="all, delete-orphan")
     
+    # 数字人智能体
+    digital_humans = relationship("Agent", back_populates="department", foreign_keys="Agent.department_id")
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

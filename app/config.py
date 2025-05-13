@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
-    POSTGRES_HOST: str = os.getenv("PGHOST", "137.184.113")
+    POSTGRES_HOST: str = os.getenv("PGHOST", "137.184.113.70")
     POSTGRES_PORT: str = os.getenv("PGPORT", "15432")
     POSTGRES_USER: str = os.getenv("PGUSER", "root")
     POSTGRES_PASSWORD: str = os.getenv("PGPASSWORD", "123456")

@@ -24,6 +24,10 @@ class Agent(Base):
     icon = Column(String(255))
     is_active = Column(Boolean, default=True)
     
+    # 数字人相关字段
+    is_digital_human = Column(Boolean, default=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
+    
     # Dify integration settings
     dify_app_id = Column(String(255))
     api_endpoint = Column(String(255))
@@ -32,7 +36,7 @@ class Agent(Base):
     
     # Relationships
     permissions = relationship("AgentPermission", back_populates="agent", cascade="all, delete-orphan")
-    # conversations relationship removed - now managed through Dify API
+    department = relationship("Department", foreign_keys=[department_id])
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

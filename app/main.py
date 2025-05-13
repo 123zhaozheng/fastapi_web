@@ -103,4 +103,39 @@ async def root():
 # Run the application with uvicorn when this script is executed
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=5000, reload=True)
+    import platform
+    import socket
+    
+    # 获取系统信息
+    system_info = {
+        "os": platform.system(),
+        "version": settings.VERSION if hasattr(settings, "VERSION") else "1.0.0",
+        "python": platform.python_version(),
+        "hostname": socket.gethostname(),
+        "ip": socket.gethostbyname(socket.gethostname())
+    }
+    
+    # 美化的 ASCII 艺术标题
+    ascii_art = f"""
+    ╭─────────────────────────────────────────────────────╮
+    │                                                     │
+    │   █▀▄ █ █▀▀ █ ▀█▀ ▄▀█ █   █ █ █ █▀▄▀█ ▄▀█ █▄░█    │
+    │   █▄▀ █ █▄█ █ ░█░ █▀█ █▄▄ █▀█ █▄█ █░▀░█ █▀█ █░▀█   │
+    │                                                     │
+    │        FastAPI 智能对话系统后端 v{system_info["version"]}        │
+    │                                                     │
+    ╰─────────────────────────────────────────────────────╯
+    
+    ╭───────────────────── 服务器信息 ─────────────────────╮
+    │                                                     │
+    │  系统: {system_info["os"]}                                        
+    │  Python版本: {system_info["python"]}                             
+    │  主机名: {system_info["hostname"]}                               
+    │  IP地址: {system_info["ip"]}                                  
+    │  运行端口: 15000                                     │
+    │                                                     │
+    ╰─────────────────────────────────────────────────────╯
+    """
+    
+    print(ascii_art)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=15000, reload=True)

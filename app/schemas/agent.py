@@ -17,6 +17,8 @@ class AgentBase(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     is_active: bool = True
+    is_digital_human: bool = False
+    department_id: Optional[int] = None
 
 
 # Schema for creating an agent
@@ -34,6 +36,8 @@ class AgentUpdate(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     is_active: Optional[bool] = None
+    is_digital_human: Optional[bool] = None
+    department_id: Optional[int] = None
     dify_app_id: Optional[str] = None
     api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
@@ -112,6 +116,8 @@ class AgentListItem(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     is_active: bool
+    is_digital_human: bool = False
+    department_id: Optional[int] = None
 
     class Config:
         from_attributes = True
