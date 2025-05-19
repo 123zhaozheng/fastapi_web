@@ -27,6 +27,7 @@ class Agent(Base):
     # 数字人相关字段
     is_digital_human = Column(Boolean, default=False)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
+    agent_category_id = Column(Integer, ForeignKey("agent_categories.id", ondelete="SET NULL"), nullable=True)
     
     # Dify integration settings
     dify_app_id = Column(String(255))
@@ -37,6 +38,7 @@ class Agent(Base):
     # Relationships
     permissions = relationship("AgentPermission", back_populates="agent", cascade="all, delete-orphan")
     department = relationship("Department", foreign_keys=[department_id])
+    category = relationship("AgentCategory", back_populates="agents")
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

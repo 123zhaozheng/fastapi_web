@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func # Import func for count
 
@@ -8,6 +8,7 @@ from sqlalchemy import func # Import func for count
 from app.services.dify import DifyService, DifyApiException
 from app.database import get_db
 from app.models.agent import Agent, AgentPermission, AgentPermissionType
+from app.models.agent_category import AgentCategory # Added import
 from app.models.user import User
 from app.models.role import Role
 from app.models.department import Department
@@ -29,13 +30,14 @@ async def get_agents(
     is_active: Optional[bool] = Query(None, description="按激活状态筛选"),
     is_digital_human: Optional[bool] = Query(None, description="按是否为数字人筛选"),
     department_id: Optional[int] = Query(None, description="按部门ID筛选（仅数字人）"),
+    agent_category_id: Optional[int] = Query(None, description="按 Agent 分类 ID 筛选"), # Added category filter
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
     获取 Agent 列表 (管理员，分页，按更新日期倒序)
 
-    获取系统中的 Agent 列表，支持分页和过滤（按名称、是否激活、是否数字人、部门ID）。仅管理员可访问。
+    获取系统中的 Agent 列表，支持分页和过滤（按名称、是否激活、是否数字人、部门ID、分类ID）。仅管理员可访问。
 
     Args:
         page (int): 页码，从1开始。
@@ -44,12 +46,13 @@ async def get_agents(
         is_active (Optional[bool]): 按 Agent 激活状态过滤。
         is_digital_human (Optional[bool]): 按是否为数字人过滤。
         department_id (Optional[int]): 按部门ID过滤（仅对数字人有效）。
+        agent_category_id (Optional[int]): 按 Agent 分类 ID 过滤。
 
     Returns:
         UnifiedResponsePaginated[schemas.Agent]: 包含 Agent 列表和分页信息的统一返回对象。
     """
     # Build query with filters
-    query = db.query(Agent)
+    query = db.query(Agent).options(joinedload(Agent.category)) # Eager load category
     
     if name:
         query = query.filter(Agent.name.ilike(f"%{name}%"))
@@ -70,6 +73,9 @@ async def get_agents(
         # 如果筛选了部门，自动筛选为数字人
         if is_digital_human is None:
             query = query.filter(Agent.is_digital_human == True)
+            
+    if agent_category_id is not None:
+        query = query.filter(Agent.agent_category_id == agent_category_id)
     
     # 计算 skip
     skip = (page - 1) * page_size
@@ -106,7 +112,7 @@ async def create_agent(
     创建时会使用提供的 Dify API 密钥和端点从 Dify 获取 Agent 的名称和描述。仅管理员可访问。
 
     Args:
-        agent_data (schemas.AgentCreate): 包含新 Agent 信息的请求体，包括是否为数字人和部门ID（可选）。
+        agent_data (schemas.AgentCreate): 包含新 Agent 信息的请求体，包括是否为数字人、部门ID（可选）和分类ID（可选）。
 
     Returns:
         UnifiedResponseSingle[schemas.Agent]: 包含创建成功的 Agent 信息的统一返回对象。
@@ -114,6 +120,7 @@ async def create_agent(
     Raises:
         HTTPException: 如果无法从 Dify 获取 Agent 信息或 Dify 凭据无效。
         DuplicateResourceException: 如果 Agent 名称已存在。
+        ResourceNotFoundException: 如果提供的部门ID或分类ID不存在。
         HTTPException: 数据库操作错误。
     """
     # 验证部门存在
@@ -121,6 +128,12 @@ async def create_agent(
         department = db.query(Department).filter(Department.id == agent_data.department_id).first()
         if not department:
             raise ResourceNotFoundException("部门", str(agent_data.department_id))
+            
+    # 验证 Agent 分类是否存在
+    if agent_data.agent_category_id:
+        category = db.query(AgentCategory).filter(AgentCategory.id == agent_data.agent_category_id).first()
+        if not category:
+            raise ResourceNotFoundException("Agent 分类", str(agent_data.agent_category_id))
             
     # 1. Use provided endpoint and key to fetch info from Dify
     temp_dify_service = DifyService(api_key=agent_data.api_key, base_url=agent_data.api_endpoint)
@@ -164,6 +177,7 @@ async def create_agent(
         is_active=agent_data.is_active,
         is_digital_human=agent_data.is_digital_human,
         department_id=agent_data.department_id,
+        agent_category_id=agent_data.agent_category_id, # Added category id
         dify_app_id=agent_data.dify_app_id,
         api_endpoint=agent_data.api_endpoint,
         api_key=agent_data.api_key,
@@ -206,13 +220,14 @@ async def get_available_agents(
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     is_digital_human: Optional[bool] = Query(None, description="按是否为数字人筛选"),
     department_id: Optional[int] = Query(None, description="按部门ID筛选（仅数字人）"),
+    agent_category_id: Optional[int] = Query(None, description="按 Agent 分类 ID 筛选"), # Added category filter
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
     获取当前用户可用的 Agent 列表 (分页，按更新日期倒序)
 
-    获取当前登录用户有权访问的 Agent 列表，支持分页和过滤（按是否数字人、部门ID）。
+    获取当前登录用户有权访问的 Agent 列表，支持分页和过滤（按是否数字人、部门ID、分类ID）。
     管理员可以访问所有激活的 Agent。普通用户根据全局、角色或部门权限访问 Agent。
 
     Args:
@@ -220,12 +235,13 @@ async def get_available_agents(
         page_size (int): 每页返回的数量。
         is_digital_human (Optional[bool]): 按是否为数字人过滤。
         department_id (Optional[int]): 按部门ID过滤（仅对数字人有效）。
+        agent_category_id (Optional[int]): 按 Agent 分类 ID 过滤。
 
     Returns:
         UnifiedResponsePaginated[schemas.AgentListItem]: 包含当前用户可用的 Agent 列表和分页信息的统一返回对象。
     """
     # Build base query for active agents
-    query = db.query(Agent).filter(Agent.is_active == True)
+    query = db.query(Agent).options(joinedload(Agent.category)).filter(Agent.is_active == True) # Eager load category
     
     # 添加数字人筛选
     if is_digital_human is not None:
@@ -242,83 +258,51 @@ async def get_available_agents(
         # 如果筛选了部门，自动筛选为数字人
         if is_digital_human is None:
             query = query.filter(Agent.is_digital_human == True)
+            
+    if agent_category_id is not None:
+        query = query.filter(Agent.agent_category_id == agent_category_id)
 
     # Calculate skip
     skip = (page - 1) * page_size
 
-    # Admin can access all active agents
-    if current_user.is_admin:
-        # Get total count for admin
-        total_count = query.count()
-        # Apply pagination and sorting
-        agents = query.order_by(Agent.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
-    else:
-        # For non-admin users, build a query based on permissions
-        # Check for agents with global access
-        global_agents_query = query.join(
-            AgentPermission,
-            AgentPermission.agent_id == Agent.id
-        ).filter(
-            AgentPermission.type == AgentPermissionType.GLOBAL
-        )
-
-        # Get user's roles
-        user_role_ids = [role.id for role in current_user.roles]
-
-        # Get agents with role-based access for this user
-        role_agents_query = query.join(
-            AgentPermission,
-            AgentPermission.agent_id == Agent.id
-        ).filter(
-            AgentPermission.type == AgentPermissionType.ROLE,
-            AgentPermission.role_id.in_(user_role_ids)
-        )
-
-        # Get agents with department-based access for this user
-        dept_agents_query = None
-        if current_user.department_id:
-            dept_agents_query = query.join(
-                AgentPermission,
-                AgentPermission.agent_id == Agent.id
-            ).filter(
-                AgentPermission.type == AgentPermissionType.DEPARTMENT,
-                AgentPermission.department_id == current_user.department_id
+    # For non-admin users, build a query based on permissions
+    if not current_user.is_admin:
+        # Build conditions for different permission types
+        conditions = [
+            # Global access
+            db.query(AgentPermission.agent_id.label('agent_id')).filter(
+                AgentPermission.type == AgentPermissionType.GLOBAL
+            ),
+            # Role-based access
+            db.query(AgentPermission.agent_id.label('agent_id')).filter(
+                AgentPermission.type == AgentPermissionType.ROLE,
+                AgentPermission.role_id.in_([role.id for role in current_user.roles])
             )
+        ]
+        
+        # Add department-based access if applicable
+        if current_user.department_id:
+            conditions.append(
+                db.query(AgentPermission.agent_id.label('agent_id')).filter(
+                    AgentPermission.type == AgentPermissionType.DEPARTMENT,
+                    AgentPermission.department_id == current_user.department_id
+                )
+            )
+        
+        # Combine all permission conditions
+        permitted_agent_ids = conditions[0].union(*conditions[1:]).distinct().subquery()
+        
+        # Apply permissions filter to the main query
+        query = query.filter(Agent.id.in_(db.query(permitted_agent_ids.c.agent_id)))
 
-        # Combine all unique agents using UNION (or equivalent logic)
-        # SQLAlchemy's union_all is suitable here for combining query results before counting/paginating
-        combined_query = global_agents_query.union_all(role_agents_query)
-        if dept_agents_query:
-             combined_query = combined_query.union_all(dept_agents_query)
+    # Get total count
+    total_count = query.count()
 
-        # Get total count of unique IDs
-        # Need to select a distinct column, e.g., Agent.id
-        combined_query_with_id = global_agents_query.with_entities(Agent.id).union_all(
-            role_agents_query.with_entities(Agent.id)
-        )
-        if dept_agents_query:
-             combined_query_with_id = combined_query_with_id.union_all(dept_agents_query.with_entities(Agent.id))
-
-        # Get total count of unique IDs
-        total_count = db.query(func.count()).select_from(combined_query_with_id.distinct().subquery()).scalar() or 0
-
-
-        # Now, apply pagination to the actual agent objects.
-        # We need to get the paginated IDs first, then fetch the full agent objects.
-        # Apply sorting to the IDs query before pagination
-        paginated_ids_query = combined_query_with_id.distinct().order_by(Agent.updated_at.desc()).offset(skip).limit(page_size) # Added sorting
-        paginated_ids = [id_[0] for id_ in paginated_ids_query.all()]
-
-        # Fetch the full agent objects for the paginated IDs, maintaining order might be tricky
-        # For simplicity, we'll fetch and sort by ID, assuming that's acceptable.
-        # If a specific order is needed, a more complex query involving the original combined query with pagination
-        # and then joining to get full details would be required.
-        if paginated_ids:
-            # Fetch agents and sort them by updated_at in descending order
-            agents = db.query(Agent).filter(Agent.id.in_(paginated_ids)).order_by(Agent.updated_at.desc()).all() # Added sorting
-        else:
-            agents = []
-
+    # Get paginated results
+    agents = query.order_by(Agent.updated_at.desc())\
+                 .offset(skip)\
+                 .limit(page_size)\
+                 .all()
 
     # Calculate total pages
     total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
@@ -339,13 +323,14 @@ async def get_digital_humans(
     department_id: Optional[int] = Query(None, description="部门ID筛选"),
     name: Optional[str] = Query(None, description="按名称筛选（模糊匹配）"),
     is_active: Optional[bool] = Query(None, description="按激活状态筛选"),
+    agent_category_id: Optional[int] = Query(None, description="按 Agent 分类 ID 筛选"), # Added category filter
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
     获取数字人列表 (管理员)
 
-    获取系统中所有数字人的列表。可以通过部门ID、名称和激活状态进行筛选。仅管理员可访问。
+    获取系统中所有数字人的列表。可以通过部门ID、名称、激活状态和分类ID进行筛选。仅管理员可访问。
 
     Args:
         page (int): 页码，从1开始。
@@ -353,11 +338,12 @@ async def get_digital_humans(
         department_id (Optional[int]): 按部门ID筛选。
         name (Optional[str]): 按数字人名称筛选（模糊匹配）。
         is_active (Optional[bool]): 按激活状态筛选。
+        agent_category_id (Optional[int]): 按 Agent 分类 ID 过滤。
 
     Returns:
         UnifiedResponsePaginated[schemas.Agent]: 包含数字人列表和分页信息的统一返回对象。
     """
-    query = db.query(Agent).filter(Agent.is_digital_human == True)
+    query = db.query(Agent).options(joinedload(Agent.category)).filter(Agent.is_digital_human == True) # Eager load category
     
     # 按名称筛选
     if name:
@@ -373,6 +359,9 @@ async def get_digital_humans(
         if not department:
             raise ResourceNotFoundException("部门", str(department_id))
         query = query.filter(Agent.department_id == department_id)
+        
+    if agent_category_id is not None:
+        query = query.filter(Agent.agent_category_id == agent_category_id)
     
     # 计算总数
     total = query.count()
@@ -413,7 +402,7 @@ async def get_agent(
         ResourceNotFoundException: 如果指定的 Agent ID 不存在。
     """
     # Get agent
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    agent = db.query(Agent).options(joinedload(Agent.category)).filter(Agent.id == agent_id).first() # Eager load category
     if not agent:
         raise ResourceNotFoundException("智能体", str(agent_id))
     
@@ -432,6 +421,8 @@ async def get_agent(
         is_active=agent.is_active,
         is_digital_human=agent.is_digital_human,
         department_id=agent.department_id,
+        agent_category_id=agent.agent_category_id, # Added category id
+        category=agent.category, # Added category object
         dify_app_id=agent.dify_app_id,
         api_endpoint=agent.api_endpoint,
         config=agent.config,
@@ -459,13 +450,13 @@ async def update_agent(
 
     Args:
         agent_id (int): 要更新的 Agent ID。
-        agent_update (schemas.AgentUpdate): 包含要更新的 Agent 信息的请求体，包括是否为数字人和部门ID（可选）。
+        agent_update (schemas.AgentUpdate): 包含要更新的 Agent 信息的请求体，包括是否为数字人、部门ID（可选）和分类ID（可选）。
 
     Returns:
         UnifiedResponseSingle[schemas.Agent]: 包含更新后的 Agent 信息的统一返回对象。
 
     Raises:
-        ResourceNotFoundException: 如果指定的 Agent ID 不存在。
+        ResourceNotFoundException: 如果指定的 Agent ID、部门ID或分类ID不存在。
         HTTPException: 如果更新 Dify 凭据失败或无法获取 Dify 应用信息。
     """
     # 验证部门存在
@@ -473,9 +464,9 @@ async def update_agent(
         department = db.query(Department).filter(Department.id == agent_update.department_id).first()
         if not department:
             raise ResourceNotFoundException("部门", str(agent_update.department_id))
-    
+            
     # Get agent
-    db_agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    db_agent = db.query(Agent).options(joinedload(Agent.category)).filter(Agent.id == agent_id).first() # Eager load category
     if not db_agent:
         raise ResourceNotFoundException("智能体", str(agent_id))
     
@@ -484,22 +475,23 @@ async def update_agent(
         name_exists = db.query(Agent).filter(Agent.name == agent_update.name).first()
         if name_exists:
             raise DuplicateResourceException("智能体", "name", agent_update.name)
-    
-    # Update fields from update request
-    if agent_update.name is not None:
-        db_agent.name = agent_update.name
-    if agent_update.description is not None:
-        db_agent.description = agent_update.description
-    if agent_update.icon is not None:
-        db_agent.icon = agent_update.icon
-    if agent_update.is_active is not None:
-        db_agent.is_active = agent_update.is_active
-    if agent_update.is_digital_human is not None:
-        db_agent.is_digital_human = agent_update.is_digital_human
-    if agent_update.department_id is not None:
-        db_agent.department_id = agent_update.department_id
-    if agent_update.dify_app_id is not None:
-        db_agent.dify_app_id = agent_update.dify_app_id
+
+    update_data = agent_update.model_dump(exclude_unset=True)
+
+    # Handle agent_category_id separately for validation
+    if "agent_category_id" in update_data:
+        category_id_to_set = update_data.pop("agent_category_id") # Remove from dict to avoid direct setattr
+        if category_id_to_set is None:
+            db_agent.agent_category_id = None
+        else:
+            category = db.query(AgentCategory).filter(AgentCategory.id == category_id_to_set).first()
+            if not category:
+                raise ResourceNotFoundException("Agent 分类", str(category_id_to_set))
+            db_agent.agent_category_id = category_id_to_set
+            
+    # Update other fields from update request
+    for key, value in update_data.items():
+        setattr(db_agent, key, value)
     
     # 如果从非数字人变为数字人，自动添加全局权限
     was_digital_human = db_agent.is_digital_human
@@ -743,25 +735,27 @@ async def get_available_digital_humans(
     page: int = Query(1, ge=1, description="页码，从1开始"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     department_id: Optional[int] = Query(None, description="部门ID筛选"),
+    agent_category_id: Optional[int] = Query(None, description="按 Agent 分类 ID 筛选"), # Added category filter
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """
     获取当前用户可用的数字人列表 (分页，按更新日期倒序)
 
-    获取当前登录用户有权访问的数字人列表，支持分页和部门筛选。
+    获取当前登录用户有权访问的数字人列表，支持分页、部门筛选和分类ID筛选。
     管理员可以访问所有激活的数字人。普通用户根据全局、角色或部门权限访问数字人。
 
     Args:
         page (int): 页码，从1开始。
         page_size (int): 每页返回的数量。
         department_id (Optional[int]): 按部门ID筛选。
+        agent_category_id (Optional[int]): 按 Agent 分类 ID 过滤。
 
     Returns:
         UnifiedResponsePaginated[schemas.AgentListItem]: 包含当前用户可用的数字人列表和分页信息的统一返回对象。
     """
     # 构建查询基础：活跃的数字人
-    query = db.query(Agent).filter(Agent.is_active == True, Agent.is_digital_human == True)
+    query = db.query(Agent).options(joinedload(Agent.category)).filter(Agent.is_active == True, Agent.is_digital_human == True) # Eager load category
     
     # 按部门筛选
     if department_id:
@@ -769,6 +763,9 @@ async def get_available_digital_humans(
         if not department:
             raise ResourceNotFoundException("部门", str(department_id))
         query = query.filter(Agent.department_id == department_id)
+        
+    if agent_category_id is not None:
+        query = query.filter(Agent.agent_category_id == agent_category_id)
     
     # 计算 skip
     skip = (page - 1) * page_size
@@ -812,24 +809,40 @@ async def get_available_digital_humans(
                 AgentPermission.department_id == current_user.department_id
             )
 
-        # Combine all unique digital humans
-        combined_query = global_agents_query.union_all(role_agents_query)
-        if dept_agents_query:
-             combined_query = combined_query.union_all(dept_agents_query)
-
-        # Get total count of unique IDs
-        combined_query_with_id = global_agents_query.with_entities(Agent.id).union_all(
+        # --- Calculate total_count ---
+        _query_for_total_count_ids = global_agents_query.with_entities(Agent.id).union_all(
             role_agents_query.with_entities(Agent.id)
         )
         if dept_agents_query:
-             combined_query_with_id = combined_query_with_id.union_all(dept_agents_query.with_entities(Agent.id))
+             _query_for_total_count_ids = _query_for_total_count_ids.union_all(
+                 dept_agents_query.with_entities(Agent.id)
+             )
+        
+        _distinct_ids_subquery_for_count = _query_for_total_count_ids.distinct().subquery('distinct_dh_ids_for_count')
+        total_count = db.query(func.count()).select_from(_distinct_ids_subquery_for_count).scalar() or 0
 
-        # Get total count of unique IDs
-        total_count = db.query(func.count()).select_from(combined_query_with_id.distinct().subquery()).scalar() or 0
+        # --- Get paginated IDs, ordered by updated_at ---
+        # Define columns with explicit labels for digital humans
+        id_col = Agent.id.label('agent_id')
+        updated_at_col = Agent.updated_at.label('agent_updated_at')
 
-        # Apply pagination to the IDs query before fetching the full objects
-        paginated_ids_query = combined_query_with_id.distinct().order_by(Agent.updated_at.desc()).offset(skip).limit(page_size)
-        paginated_ids = [id_[0] for id_ in paginated_ids_query.all()]
+        query_for_pagination_details = global_agents_query.with_entities(id_col, updated_at_col).union_all(
+            role_agents_query.with_entities(id_col, updated_at_col)
+        )
+        if dept_agents_query:
+            query_for_pagination_details = query_for_pagination_details.union_all(
+                dept_agents_query.with_entities(id_col, updated_at_col)
+            )
+            
+        distinct_agents_with_details_subquery = query_for_pagination_details.distinct().subquery()
+
+        paginated_ids_stmt = db.query(distinct_agents_with_details_subquery.c.agent_id)\
+                               .select_from(distinct_agents_with_details_subquery)\
+                               .order_by(distinct_agents_with_details_subquery.c.agent_updated_at.desc())\
+                               .offset(skip)\
+                               .limit(page_size)
+        
+        paginated_ids = paginated_ids_stmt.scalars().all()
 
         # Fetch the full digital human objects
         if paginated_ids:

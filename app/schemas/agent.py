@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from pydantic import BaseModel, Field
 from enum import Enum
+from app.schemas.agent_category import AgentCategory as AgentCategorySchema
 
 
 class AgentPermissionTypeEnum(str, Enum):
@@ -19,6 +20,7 @@ class AgentBase(BaseModel):
     is_active: bool = True
     is_digital_human: bool = False
     department_id: Optional[int] = None
+    agent_category_id: Optional[int] = None
 
 
 # Schema for creating an agent
@@ -28,6 +30,7 @@ class AgentCreate(AgentBase):
     api_endpoint: str = Field(..., description="Dify App Base URL (e.g., http://<host>/v1)")
     api_key: str = Field(..., description="Dify App API Key")
     config: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    # agent_category_id is inherited from AgentBase
 
 
 # Schema for updating an agent
@@ -42,6 +45,7 @@ class AgentUpdate(BaseModel):
     api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+    agent_category_id: Optional[int] = None
 
 
 # Schema returned to client
@@ -51,6 +55,8 @@ class Agent(AgentBase):
     api_endpoint: str
     created_at: datetime
     updated_at: datetime
+    # agent_category_id is inherited from AgentBase
+    category: Optional[AgentCategorySchema] = None
 
     class Config:
         from_attributes = True
@@ -118,6 +124,8 @@ class AgentListItem(BaseModel):
     is_active: bool
     is_digital_human: bool = False
     department_id: Optional[int] = None
+    agent_category_id: Optional[int] = None
+    category: Optional[AgentCategorySchema] = None
 
     class Config:
         from_attributes = True

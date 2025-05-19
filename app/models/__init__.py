@@ -5,5 +5,6 @@ from app.models.department import Department
 from app.models.menu import Menu, Button
 from app.models.agent import Agent, AgentPermission
 from app.models.chat import MessageRole, DocumentStatus
+from app.models.agent_category import AgentCategory
 # Note: Conversation, Message, and Document models have been removed
 # Now using Dify API directly for these features

@@ -8,7 +8,7 @@ from loguru import logger
 from app.schemas.response import UnifiedResponseSingle
 
 from app.config import settings
-from app.api import auth, users, roles, departments, menus, agents, chat
+from app.api import auth, users, roles, departments, menus, agents, chat, agent_categories
 from app.utils.logger import setup_logging
 from app.core.exceptions import AppException
 
@@ -94,6 +94,7 @@ app.include_router(departments.router, prefix=settings.API_V1_STR, tags=["Depart
 app.include_router(menus.router, prefix=settings.API_V1_STR, tags=["Menus"])
 app.include_router(agents.router, prefix=settings.API_V1_STR, tags=["Agents"])
 app.include_router(chat.router, prefix=settings.API_V1_STR, tags=["Chat"])
+app.include_router(agent_categories.router, prefix=settings.API_V1_STR, tags=["Agent Categories"])
 logger.info("API routers included.")
 
 @app.get("/")

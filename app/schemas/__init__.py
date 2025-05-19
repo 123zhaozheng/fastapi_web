@@ -6,3 +6,5 @@ from app.schemas.menu import *
 from app.schemas.agent import *
 from app.schemas.chat import *
 from app.schemas.token import *
+
+from app.schemas.agent_category import AgentCategoryBase, AgentCategoryCreate, AgentCategoryUpdate, AgentCategory
