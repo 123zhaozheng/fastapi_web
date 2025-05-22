@@ -396,13 +396,13 @@ async def get_digital_humans(
 async def get_agent(
     agent_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user)
+    current_user: User = Depends(get_current_user)
 ) -> Any:
     """
-    按 ID 获取 Agent 及权限详情 (管理员)
+    按 ID 获取 Agent 及权限详情
 
     根据 Agent ID 获取指定 Agent 的详细信息，包括关联的权限详情（全局、角色、部门）
-    以及是否为数字人和关联的部门ID。仅管理员可访问。
+    以及是否为数字人和关联的部门ID。
 
     Args:
         agent_id (int): 要获取的 Agent ID。
@@ -669,7 +669,7 @@ async def set_agent_permissions(
                     type=AgentPermissionType.DEPARTMENT,
                     department_id=perm.department_id
                 ))
-                
+
     db.bulk_save_objects(permissions_to_add)
     # Commit changes
     db.commit()
