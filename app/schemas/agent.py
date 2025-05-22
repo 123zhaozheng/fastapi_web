@@ -57,6 +57,7 @@ class Agent(AgentBase):
     updated_at: datetime
     # agent_category_id is inherited from AgentBase
     category: Optional[AgentCategorySchema] = None
+    department_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -124,6 +125,7 @@ class AgentListItem(BaseModel):
     is_active: bool
     is_digital_human: bool = False
     department_id: Optional[int] = None
+    department_name: Optional[str] = None
     agent_category_id: Optional[int] = None
     category: Optional[AgentCategorySchema] = None
 

@@ -52,7 +52,10 @@ async def get_agents(
         UnifiedResponsePaginated[schemas.Agent]: 包含 Agent 列表和分页信息的统一返回对象。
     """
     # Build query with filters
-    query = db.query(Agent).options(joinedload(Agent.category)) # Eager load category
+    query = db.query(Agent).options(
+        joinedload(Agent.category),
+        joinedload(Agent.department)
+    ).filter(Agent.is_active == True) # Eager load category and department
     
     if name:
         query = query.filter(Agent.name.ilike(f"%{name}%"))
@@ -218,6 +221,7 @@ async def create_agent(
 async def get_available_agents(
     page: int = Query(1, ge=1, description="页码，从1开始"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    name: Optional[str] = Query(None, description="按名称筛选（模糊匹配）"),
     is_digital_human: Optional[bool] = Query(None, description="按是否为数字人筛选"),
     department_id: Optional[int] = Query(None, description="按部门ID筛选（仅数字人）"),
     agent_category_id: Optional[int] = Query(None, description="按 Agent 分类 ID 筛选"), # Added category filter
@@ -227,12 +231,13 @@ async def get_available_agents(
     """
     获取当前用户可用的 Agent 列表 (分页，按更新日期倒序)
 
-    获取当前登录用户有权访问的 Agent 列表，支持分页和过滤（按是否数字人、部门ID、分类ID）。
+    获取当前登录用户有权访问的 Agent 列表，支持分页和过滤（按名称、是否数字人、部门ID、分类ID）。
     管理员可以访问所有激活的 Agent。普通用户根据全局、角色或部门权限访问 Agent。
 
     Args:
         page (int): 页码，从1开始。
         page_size (int): 每页返回的数量。
+        name (Optional[str]): 按 Agent 名称过滤（模糊匹配）。
         is_digital_human (Optional[bool]): 按是否为数字人过滤。
         department_id (Optional[int]): 按部门ID过滤（仅对数字人有效）。
         agent_category_id (Optional[int]): 按 Agent 分类 ID 过滤。
@@ -241,7 +246,14 @@ async def get_available_agents(
         UnifiedResponsePaginated[schemas.AgentListItem]: 包含当前用户可用的 Agent 列表和分页信息的统一返回对象。
     """
     # Build base query for active agents
-    query = db.query(Agent).options(joinedload(Agent.category)).filter(Agent.is_active == True) # Eager load category
+    query = db.query(Agent).options(
+        joinedload(Agent.category),
+        joinedload(Agent.department)
+    ).filter(Agent.is_active == True) # Eager load category and department
+    
+    # 添加名称模糊查询
+    if name:
+        query = query.filter(Agent.name.ilike(f"%{name}%"))
     
     # 添加数字人筛选
     if is_digital_human is not None:
@@ -611,9 +623,10 @@ async def set_agent_permissions(
     # Delete existing permissions
     db.query(AgentPermission).filter(AgentPermission.agent_id == agent_id).delete()
     
+    permissions_to_add = []
     # Set global access if specified
     if permissions.global_access:
-        db.add(AgentPermission(
+        permissions_to_add.append(AgentPermission(
             agent_id=agent_id,
             type=AgentPermissionType.GLOBAL
         ))
@@ -633,7 +646,7 @@ async def set_agent_permissions(
                 if not role:
                     raise ResourceNotFoundException("角色", str(perm.role_id))
                 
-                db.add(AgentPermission(
+                permissions_to_add.append(AgentPermission(
                     agent_id=agent_id,
                     type=AgentPermissionType.ROLE,
                     role_id=perm.role_id
@@ -651,12 +664,13 @@ async def set_agent_permissions(
                 if not dept:
                     raise ResourceNotFoundException("部门", str(perm.department_id))
                 
-                db.add(AgentPermission(
+                permissions_to_add.append(AgentPermission(
                     agent_id=agent_id,
                     type=AgentPermissionType.DEPARTMENT,
                     department_id=perm.department_id
                 ))
-    
+                
+    db.bulk_save_objects(permissions_to_add)
     # Commit changes
     db.commit()
     

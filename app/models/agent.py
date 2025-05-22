@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy import DateTime, Enum
+from sqlalchemy.ext.hybrid import hybrid_property
 import enum
 
 from app.database import Base
@@ -43,6 +44,11 @@ class Agent(Base):
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    @hybrid_property
+    def department_name(self):
+        """Get department name if department exists"""
+        return self.department.name if self.department else None
 
     def __repr__(self):
         return f"<Agent {self.name}>"
