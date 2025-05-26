@@ -686,9 +686,10 @@ async def upload_document(
             detail="文件上传需要 agent_id"
          )
 
+    custom_dify = None
     try:
         # Validate file
-        validate_upload_file(file)
+        # validate_upload_file(file)
 
         # Get agent
         agent = db.query(Agent).filter(Agent.id == agent_id).first()
