@@ -156,7 +156,7 @@ async def upload_avatar(
     return UnifiedResponseSingle(data={"url": avatar_info["url"], "thumbnails": avatar_info.get("thumbnails", {})})
 
 
-@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/password", response_model=UnifiedResponseSingle[None])
 async def change_password(
     password_data: schemas.UserPasswordChange,
     db: Session = Depends(get_db),
@@ -188,6 +188,7 @@ async def change_password(
     db.commit()
     
     logger.info(f"Password changed for user ID {current_user.id}")
+    return UnifiedResponseSingle(data=None)
 
 
 @router.get("", response_model=UnifiedResponsePaginated[schemas.User])
