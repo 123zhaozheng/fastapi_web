@@ -471,7 +471,7 @@ async def delete_user(
     logger.info(f"User deleted: {user.username} (ID: {user.id})")
 
 
-@router.post("/{user_id}/password-reset", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{user_id}/password-reset", response_model=UnifiedResponseSingle[None])
 async def reset_user_password(
     user_id: int,
     password_data: schemas.UserPasswordReset,
@@ -503,6 +503,7 @@ async def reset_user_password(
     db.commit()
     
     logger.info(f"Password reset for user: {user.username} (ID: {user.id})")
+    return UnifiedResponseSingle(data=None)
 
 
 @router.post("/{user_id}/roles", response_model=UnifiedResponseSingle[dict])
