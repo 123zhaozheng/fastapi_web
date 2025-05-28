@@ -1,8 +1,8 @@
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
+from ..config import settings
 from .role import Role
-
 
 # Base User Schema
 class UserBase(BaseModel):
@@ -48,7 +48,7 @@ class UserPasswordChange(BaseModel):
 
 # Schema for password reset by admin
 class UserPasswordReset(BaseModel):
-    new_password: str
+    new_password: Optional[str] = settings.DEFAULT_RESET_PASSWORD
 
 
 # Schema returned to client
@@ -89,6 +89,7 @@ class UserProfile(BaseModel):
 class UserAvatarUploadResponse(BaseModel):
     url: str
     thumbnails: Optional[dict] = None
+
 # Schema for user login
 class UserLogin(BaseModel):
     username: str
