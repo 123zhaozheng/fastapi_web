@@ -55,7 +55,7 @@ async def get_agents(
     query = db.query(Agent).options(
         joinedload(Agent.category),
         joinedload(Agent.department)
-    ).filter(Agent.is_active == True) # Eager load category and department
+    ) # Eager load category and department
     
     if name:
         query = query.filter(Agent.name.ilike(f"%{name}%"))
@@ -249,7 +249,7 @@ async def get_available_agents(
     query = db.query(Agent).options(
         joinedload(Agent.category),
         joinedload(Agent.department)
-    ).filter(Agent.is_active == True) # Eager load category and department
+    ) # Eager load category and department
     
     # 添加名称模糊查询
     if name:
