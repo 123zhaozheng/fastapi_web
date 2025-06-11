@@ -16,8 +16,10 @@ from app.schemas import agent as schemas
 from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated # Import new response models
 from app.core.deps import get_current_user, get_admin_user
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
-from app.services.file_storage import FileStorageService
+from app.core.storage import storage_client
 from loguru import logger
+import uuid
+import os
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -690,7 +692,6 @@ async def set_agent_permissions(
     return UnifiedResponseSingle(data=result) # Wrapped in UnifiedResponseSingle
 
 
-# Removed the original get_available_agents function from here
 @router.post("/{agent_id}/icon", response_model=UnifiedResponseSingle[schemas.AgentIconUploadResponse]) # Modified response_model
 async def upload_agent_icon(
     agent_id: int,
@@ -699,49 +700,42 @@ async def upload_agent_icon(
     current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
-    上传 Agent 图标 (管理员)
+    上传 Agent 图标
 
-    为指定的 Agent 上传图标图片。仅管理员可访问。
+    为指定的 Agent 上传图标。仅管理员可访问。
 
     Args:
-        agent_id (int): 要上传图标的 Agent ID。
+        agent_id (int): 要上传图标的 Agent 的 ID。
         file (UploadFile): 要上传的图标文件。
 
     Returns:
-        UnifiedResponseSingle[schemas.AgentIconUploadResponse]: 包含图标 URL 的统一返回对象。
-
-    Raises:
-        ResourceNotFoundException: 如果指定的 Agent ID 不存在。
-        HTTPException: 如果上传的文件不是图片。
+        UnifiedResponseSingle[schemas.AgentIconUploadResponse]: 包含图标 URL 和缩略图信息的统一返回对象。
     """
-    # Get agent
-    db_agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not db_agent:
-        raise ResourceNotFoundException("智能体", str(agent_id))
+    # 1. 查找 Agent
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise ResourceNotFoundException("Agent", str(agent_id))
 
-    # Validate file type (optional, but recommended for icons)
+    # 2. 验证文件类型
     if not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="无效的文件类型。只允许上传图片。"
         )
 
-    # Save icon using FileStorageService
-    file_service = FileStorageService()
-    icon_info = await file_service.save_agent_icon(file, agent_id)
+    # 3. 使用新的 storage_client 保存图标
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"icons/{agent.id}-{uuid.uuid4()}{file_extension}"
+    
+    icon_url = await storage_client.save(file, unique_filename)
 
-    # Update agent icon URL
-    db_agent.icon = icon_info["url"]
+    # 4. 更新 Agent 的图标 URL
+    agent.icon = icon_url
     db.commit()
-    db.refresh(db_agent)
 
-    logger.info(f"Agent icon updated for agent ID {agent_id}")
-
-    # Return UnifiedResponseSingle
-    return UnifiedResponseSingle(data={"url": db_agent.icon})
-
-
-
+    # 5. 返回响应
+    # 注意：我们的新存储服务不直接生成缩略图，因此返回一个空字典
+    return UnifiedResponseSingle(data={"url": icon_url, "thumbnails": {}})
 
 
 @router.get("/available/digital-humans", response_model=UnifiedResponsePaginated[schemas.AgentListItem])

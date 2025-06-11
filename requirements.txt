@@ -20,6 +20,8 @@ python-multipart>=0.0.20 # Parsing multipart/form-data requests (often used with
 sqlalchemy>=2.0.40     # SQLAlchemy ORM and SQL Toolkit
 sse-starlette>=2.3.3   # Server-Sent Events support for Starlette (and FastAPI)
 uvicorn>=0.34.2        # Uvicorn ASGI server (often used with FastAPI/Starlette)
+boto3>=1.34.0          # AWS SDK for Python, used for S3 storage
+aiofiles>=23.2.1       # For asynchronous file operations
 
 # To install these dependencies, run:
 # pip install -r requirements.txt

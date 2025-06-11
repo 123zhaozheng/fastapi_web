@@ -2,6 +2,8 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session, selectinload # Import selectinload
 from sqlalchemy.exc import IntegrityError
+import os
+import uuid
 
 from app.database import get_db
 from app.models.user import User
@@ -11,7 +13,7 @@ from app.schemas import user as schemas
 from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated
 from app.core.deps import get_current_user, get_admin_user, check_permission
 from app.core.security import get_password_hash, verify_password
-from app.services.file_storage import FileStorageService
+from app.core.storage import storage_client
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from loguru import logger
 
@@ -143,17 +145,21 @@ async def upload_avatar(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="无效的文件类型。只允许上传图片。"
         )
+
+    # 使用新的 storage_client 保存头像
+    # 生成一个唯一的文件名以避免冲突
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"avatars/{current_user.id}-{uuid.uuid4()}{file_extension}"
     
-    # Save avatar
-    file_service = FileStorageService()
-    avatar_info = await file_service.save_avatar(file, current_user.id)
+    avatar_url = await storage_client.save(file, unique_filename)
     
-    # Update user avatar URL
-    current_user.avatar = avatar_info["url"]
+    # 更新用户头像 URL
+    current_user.avatar = avatar_url
     db.commit()
     
-    # Return UnifiedResponseSingle
-    return UnifiedResponseSingle(data={"url": avatar_info["url"], "thumbnails": avatar_info.get("thumbnails", {})})
+    # 返回统一响应
+    # 注意：我们的新存储服务不直接生成缩略图，因此返回一个空字典
+    return UnifiedResponseSingle(data={"url": avatar_url, "thumbnails": {}})
 
 
 @router.post("/password", response_model=UnifiedResponseSingle[None])

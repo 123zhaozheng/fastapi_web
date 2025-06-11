@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fastapi-web-uploads-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # 对于生产环境，您可能需要指定一个 storageClassName
+  # storageClassName: your-storage-class 

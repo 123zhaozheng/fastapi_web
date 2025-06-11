@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fastapi-web-config
+data:
+  # 警告：请勿在此处存放密码等敏感信息。
+  # 对于敏感信息，请使用 Secret。
+  # 例如:
+  # DATABASE_URL: "postgresql://USER:PASSWORD@your-db-host:5432/your-db-name"
+  # SECRET_KEY: "your-super-secret-key"
+  
+  # 请将下面的值替换为您的实际配置
+  # 您需要创建一个名为 "fastapi-web-secrets" 的 Secret 来存放敏感信息
+  # kubectl create secret generic fastapi-web-secrets --from-literal=database-url='your-database-url' --from-literal=secret-key='your-secret-key'
+  
+  PGHOST: "your-db-host" # 数据库主机名或服务名
+  # 如果您的数据库不在 k8s 集群内，这里应该是数据库的外部地址
+
+  # 其他非敏感配置
+  APP_NAME: "FastAPI Web App"
+  ENVIRONMENT: "production"
+  STORAGE_TYPE: "local" # 可选值: "local", "s3" 

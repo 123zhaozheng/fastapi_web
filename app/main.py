@@ -12,6 +12,10 @@ from app.api import auth, users, roles, departments, menus, agents, chat, agent_
 from app.utils.logger import setup_logging
 from app.core.exceptions import AppException
 
+# 导入新的存储服务和配置
+from app.core.storage import storage_client, STORAGE_TYPE
+from fastapi.staticfiles import StaticFiles
+
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,18 +36,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import StaticFiles for serving static files
-from fastapi.staticfiles import StaticFiles
-
 # Setup logging
 setup_logging()
 
-# Mount static files directory for avatars
-# The first parameter "/avatars" is the URL path for frontend access
-# The second parameter directory=settings.FILE_STORAGE_PATH + "/avatars" is the actual directory on the backend server where images are stored
-# The third parameter name="avatars" is the name of this static route
-app.mount("/avatars", StaticFiles(directory=settings.FILE_STORAGE_PATH + "/avatars"), name="avatars")
-app.mount("/icons", StaticFiles(directory=settings.FILE_STORAGE_PATH + "/icons"), name="icons")
+# 根据存储类型，有条件地挂载静态文件目录
+if STORAGE_TYPE == 'local':
+    logger.info("Local storage is used, mounting static directories...")
+    # 确保基础目录存在
+    local_storage_path = "./uploads"
+    os.makedirs(os.path.join(local_storage_path, "avatars"), exist_ok=True)
+    os.makedirs(os.path.join(local_storage_path, "icons"), exist_ok=True)
+    
+    # 将 /avatars URL 路径映射到 /app/uploads/avatars 物理路径
+    app.mount("/avatars", StaticFiles(directory=os.path.join(local_storage_path, "avatars")), name="avatars")
+    # 将 /icons URL 路径映射到 /app/uploads/icons 物理路径
+    app.mount("/icons", StaticFiles(directory=os.path.join(local_storage_path, "icons")), name="icons")
+    logger.info(f"Mounted /avatars to {os.path.join(local_storage_path, 'avatars')}")
+    logger.info(f"Mounted /icons to {os.path.join(local_storage_path, 'icons')}")
+else:
+    logger.info("S3 storage is used, skipping static directory mounting.")
 
 # Request logging middleware
 @app.middleware("http")
