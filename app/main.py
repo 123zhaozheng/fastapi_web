@@ -38,12 +38,18 @@ from fastapi.staticfiles import StaticFiles
 # Setup logging
 setup_logging()
 
+# Ensure static file directories exist before mounting
+avatars_dir = os.path.join(settings.FILE_STORAGE_PATH, "avatars")
+icons_dir = os.path.join(settings.FILE_STORAGE_PATH, "icons")
+os.makedirs(avatars_dir, exist_ok=True)
+os.makedirs(icons_dir, exist_ok=True)
+
 # Mount static files directory for avatars
 # The first parameter "/avatars" is the URL path for frontend access
 # The second parameter directory=settings.FILE_STORAGE_PATH + "/avatars" is the actual directory on the backend server where images are stored
 # The third parameter name="avatars" is the name of this static route
-app.mount("/avatars", StaticFiles(directory=settings.FILE_STORAGE_PATH + "/avatars"), name="avatars")
-app.mount("/icons", StaticFiles(directory=settings.FILE_STORAGE_PATH + "/icons"), name="icons")
+app.mount("/avatars", StaticFiles(directory=avatars_dir), name="avatars")
+app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")
 
 # Request logging middleware
 @app.middleware("http")
