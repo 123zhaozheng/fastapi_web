@@ -13,6 +13,7 @@ from app.models.chat import MessageRole, DocumentStatus,Conversation
 from app.models.agent import Agent
 from app.models.user import User
 from app.schemas import chat as schemas
+from app.schemas.response import UnifiedResponseSingle
 from app.core.deps import get_current_user, get_dify_service
 from app.services.dify import DifyService
 from app.services.file_storage import FileStorageService
@@ -194,7 +195,7 @@ async def chat_completions(
                 files_data,
                 request.inputs,
                 db, # Added db
-                current_user.id, # Added current_user.id
+                current_user.id, # Added current_user_id
                 agent_id, # Added agent_id
                 request.auto_generate_name
             ),
@@ -498,6 +499,103 @@ async def stop_generation(
             await custom_dify_service.close()
 
 
+@router.post("/conversations/{conversation_id}/messages/{message_id}/feedback", operation_id="feedback_message", response_model=UnifiedResponseSingle[schemas.FeedbackResponse])
+async def give_message_feedback(
+    conversation_id: str,
+    message_id: str,
+    request: schemas.MessageFeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UnifiedResponseSingle[schemas.FeedbackResponse]:
+    """
+    消息反馈
+
+    为指定消息提供"点赞"或"点踩"的反馈。
+
+    Args:
+        conversation_id (str): 对话 ID。
+        message_id (str): 消息 ID。
+        request (schemas.MessageFeedbackRequest): 包含评分和可选内容的请求体。
+        db (Session): 数据库会话依赖。
+        current_user (User): 当前用户依赖。
+
+    Returns:
+        UnifiedResponseSingle[schemas.FeedbackResponse]: 包含反馈结果的统一响应对象。
+
+    Raises:
+        ResourceNotFoundException: 如果指定的对话 ID 不存在。
+        HTTPException: 如果关联的 Agent 不存在或用户无权访问。
+        DifyApiException: Dify API 调用错误。
+    """
+    # 1. Find local conversation record to get agent_id and verify user access
+    local_conversation = db.query(Conversation).filter(
+        Conversation.conversation_id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+
+    if not local_conversation:
+        raise ResourceNotFoundException("对话", conversation_id)
+
+    # 2. Get agent based on stored agent_id
+    agent = db.query(Agent).filter(Agent.id == local_conversation.agent_id).first()
+    if not agent:
+         logger.error(f"Agent ID {local_conversation.agent_id} not found for conversation {conversation_id}")
+         raise HTTPException(status_code=500, detail="未找到关联的智能体。")
+
+    # 3. No need to re-check full permissions here, as owning the conversation implies access.
+    # However, a basic check is still good practice.
+    if not current_user.is_admin:
+        user_has_access = False
+        global_access = any(p.type == "global" for p in agent.permissions)
+        if global_access:
+            user_has_access = True
+        if not user_has_access:
+            user_role_ids = [role.id for role in current_user.roles]
+            role_access = any(p.type == "role" and p.role_id in user_role_ids for p in agent.permissions)
+            if role_access:
+                user_has_access = True
+        if not user_has_access and current_user.department_id:
+            dept_access = any(p.type == "department" and p.department_id == current_user.department_id for p in agent.permissions)
+            if dept_access:
+                user_has_access = True
+        if not user_has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="您无权停止此智能体对话的生成"
+            )
+    # 4. Set up Dify API with the agent's credentials
+    dify_api_key = agent.api_key
+    dify_base_url = agent.api_endpoint
+    custom_dify_service = DifyService(api_key=dify_api_key, base_url=dify_base_url)
+
+    try:
+        # The rating can be 'like', 'dislike', or None (if the user wants to undo their feedback)
+        rating_value = request.rating.value if request.rating else None
+
+        # Call the existing feedback_message method in DifyService
+        response = await custom_dify_service.feedback_message(
+            message_id=message_id,
+            rating=rating_value,
+            user=str(current_user.id),
+            content=request.content
+        )
+        # Assuming Dify returns {"result": "success"} on success
+        if response.get("result") == "success":
+             return UnifiedResponseSingle(data=schemas.FeedbackResponse(success=True, detail="Feedback submitted successfully"))
+        else:
+             logger.warning(f"Dify feedback returned unexpected response: {response}")
+             return UnifiedResponseSingle(data=schemas.FeedbackResponse(success=False, detail="Failed to confirm feedback status from Dify."))
+    except DifyApiException as e:
+        logger.error(f"Dify API error when submitting feedback: {str(e)}")
+        raise
+    except Exception as e:
+        logger.exception(f"Error in message feedback: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"内部服务器错误: {str(e)}")
+    finally:
+        if custom_dify_service:
+            await custom_dify_service.close()
+
+
 # TODO: Verify if the underlying Dify API endpoint 'GET /conversations/{conversation_id}/messages' exists and supports pagination.
 # The Dify documentation provided did not explicitly list this. If it doesn't exist,
 # this endpoint's logic needs to be re-evaluated or removed.
@@ -769,7 +867,7 @@ async def deep_thinking(
     """
     深度思考模式
 
-    使用特定的 prompt 结构处理复杂问题，通过 Dify API 进行“深度思考”。需要在请求体中提供 Agent ID。
+    使用特定的 prompt 结构处理复杂问题，通过 Dify API 进行"深度思考"。需要在请求体中提供 Agent ID。
 
     Args:
         request (schemas.DeepThinkingRequest): 包含查询、Agent ID、对话 ID (可选) 和输入的请求体。

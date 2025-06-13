@@ -181,3 +181,24 @@ class DocumentUploadResponse(BaseModel):
     status: str
 
 
+class FeedbackRating(str, Enum):
+    """Enum for feedback ratings"""
+    LIKE = "like"
+    DISLIKE = "dislike"
+
+
+class MessageFeedbackRequest(BaseModel):
+    """Schema for submitting feedback on a message"""
+    rating: Optional[FeedbackRating] = Field(
+        None, 
+        description="点赞 'like', 点踩 'dislike', 撤销为 null (不传此字段或传 null)"
+    )
+    content: Optional[str] = Field(None, description="消息反馈的具体信息")
+
+
+class FeedbackResponse(BaseModel):
+    """Schema for feedback response"""
+    success: bool
+    detail: str
+
+
