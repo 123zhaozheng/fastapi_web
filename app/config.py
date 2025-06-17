@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     
     # Security settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "b1c625c6ceaaccfec8b7e843c0b8dc25af2a5f660cd64a95b0d0b4b3746bf485")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
-    REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24))  # 24 hours
+    REFRESH_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", 60 * 24 * 7))  # 7 days
     DEFAULT_RESET_PASSWORD: str = os.getenv("DEFAULT_RESET_PASSWORD", "Kunxiaozhi@123")  # 默认重置密码
     
     POSTGRES_HOST: str = os.getenv("PGHOST", "137.184.113.70")
