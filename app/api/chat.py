@@ -209,7 +209,7 @@ async def chat_completions(
             response_generator = custom_dify_service.send_chat_message( # Use the custom service
                 query=request.query,
                 conversation_id=request.conversation_id, # Pass conversation_id (will be None for new)
-                user=str(current_user.id),
+                user=current_user.username,
                 inputs=request.inputs,
                 files=files_data,
                 streaming=False
