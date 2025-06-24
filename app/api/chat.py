@@ -191,7 +191,7 @@ async def chat_completions(
                 custom_dify_service, # Use the custom service
                 request.query,
                 request.conversation_id, # Pass conversation_id (will be None for new)
-                str(current_user.id),
+                str(current_user.username),
                 files_data,
                 request.inputs,
                 db, # Added db
@@ -280,7 +280,7 @@ async def stream_chat_response(
     dify_service: DifyService,
     query: str,
     conversation_id: Optional[str],
-    user_id: str,
+    user_name: str,
     files: List[Dict],
     inputs: Dict,
     db: Session, # Moved db before default parameters
@@ -314,7 +314,7 @@ async def stream_chat_response(
         async for event in dify_service.send_chat_message(
             query=query,
             conversation_id=conversation_id,
-            user=user_id,
+            user=user_name,
             inputs=inputs,
             files=files,
             streaming=True
@@ -478,7 +478,7 @@ async def stop_generation(
         # Call Dify API to stop generation, passing user ID and task_id from the request
         response = await custom_dify_service.stop_generation(
             task_id=request.task_id,
-            user=str(current_user.id)
+            user=str(current_user.username)
         )
         # Assuming Dify returns {"result": "success"} on success
         if response.get("result") == "success":
@@ -576,7 +576,7 @@ async def give_message_feedback(
         response = await custom_dify_service.feedback_message(
             message_id=message_id,
             rating=rating_value,
-            user=str(current_user.id),
+            user=str(current_user.username),
             content=request.content
         )
         # Assuming Dify returns {"result": "success"} on success
@@ -694,7 +694,7 @@ async def get_conversation_messages_history( # Renamed function
         logger.debug(f"Calling get_conversation_messages with conversation_id: {conversation_id}, user_id: {current_user.id}, first_id: {first_id}, limit: {limit}")
         messages = await custom_dify_service.get_conversation_messages(
             conversation_id=conversation_id,
-            user_id=str(current_user.id),
+            user_id=str(current_user.username),
             first_id=first_id, # Pass pagination parameter
             limit=limit        # Pass pagination parameter
         )
@@ -821,7 +821,7 @@ async def upload_document(
         # Upload file to Dify, passing user ID
         upload_result = await custom_dify.upload_file(
             file=file,
-            user=str(current_user.id)
+            user=str(current_user.username)
         )
 
         # Return response
@@ -948,7 +948,7 @@ async def deep_thinking(
         response = await custom_dify_service.send_chat_message(
             query=deep_thinking_prompt,
             conversation_id=request.conversation_id,
-            user=str(current_user.id),
+            user=str(current_user.username),
             inputs=request.inputs,
             streaming=False
         )
