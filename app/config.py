@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE: str = os.getenv("LOG_FILE", "logs/app.log")
     
+    # OA SSO settings
+    OA_SSO_BASE_URL: str = os.getenv("OA_SSO_BASE_URL", "http://127.0.0.1")
+    OA_SSO_PUBLIC_KEY: str = os.getenv("OA_SSO_PUBLIC_KEY", "")
+    OA_SSO_CHANNEL_ID: str = os.getenv("OA_SSO_CHANNEL_ID", "aimp")
+    
     @field_validator("DATABASE_URI", mode="before")
     def assemble_db_connection(cls, v: Optional[str], values: Dict[str, Any]) -> Any:
         if isinstance(v, str):

@@ -13,12 +13,16 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     verify_password,
+    get_password_hash,
+    generate_secure_token,
 )
 from app.core.exceptions import InvalidCredentialsException
 from jose import jwt, JWTError
 from app.core.security import SECRET_KEY
 from loguru import logger
-
+from app.services.oa_sso import OASsoService, OASsoException
+from app.models.role import Role
+from app.config import settings
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
@@ -200,3 +204,60 @@ async def refresh_token_endpoint(
             detail="无效的刷新令牌",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.post("/login/oa-sso", response_model=Token)
+async def oa_sso_login(
+    token_data: dict,  # expecting {"token": "..."}
+    db: Session = Depends(get_db)
+) -> Any:
+    """OA SSO 登录接口
+
+    前端提供 OA 颁发的 token，后端加密后调用 OA SSO 接口获取工号 (workcode)。
+    如果工号对应的用户不存在，则自动创建。
+    """
+    token = token_data.get("token") if isinstance(token_data, dict) else None
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="token 不能为空")
+
+    sso_service = OASsoService()
+    try:
+        workcode = await sso_service.get_workcode(token)
+    except OASsoException as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+    finally:
+        await sso_service.close()
+
+    # Find or create user
+    user = db.query(User).filter(User.username == workcode).first()
+    if not user:
+        # Auto-create user with placeholder values
+        random_password = settings.DEFAULT_RESET_PASSWORD
+        user = User(
+            username=workcode,
+            email=f"{workcode}@ksrcb.com",
+            hashed_password=get_password_hash(random_password),
+            full_name=workcode,
+            is_active=True
+        )
+
+        # Assign default roles
+        default_roles = db.query(Role).filter(Role.is_default == True).all()
+        if default_roles:
+            user.roles = default_roles
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # Update last_login
+    user.last_login = datetime.utcnow()
+    db.commit()
+
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
