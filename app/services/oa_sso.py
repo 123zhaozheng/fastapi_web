@@ -38,12 +38,12 @@ class OASsoService:
         if not encrypted_hex:
             raise OASsoException("Failed to encrypt token for OA SSO")
 
-        url = (f"{self.base_url}/api/nsh/sshtoken/getssotoken?channelid="
+        url = (f"{self.base_url}/api/nsh/ssotoken/getssotoken?channelid="
                f"{self.channel_id}&Encrypted={encrypted_hex}")
         logger.debug(f"Requesting OA SSO URL: {url}")
 
         try:
-            response = await self.client.get(url)
+            response = await self.client.post(url)
             response.raise_for_status()
         except httpx.RequestError as exc:
             logger.error(f"Error while requesting OA SSO: {exc}")
@@ -55,7 +55,7 @@ class OASsoService:
         data = response.json()
         logger.debug(f"OA SSO response data: {data}")
 
-        if data.get("status") != 0:
+        if data.get("status") != "0":
             # Optionally read message field
             msg = data.get("message", "OA SSO 认证失败")
             raise OASsoException(msg)
