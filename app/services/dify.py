@@ -553,8 +553,8 @@ class DifyService:
             return response.json()
             
         except httpx.RequestError as e:
-            logger.error(f"Error deleting conversation in Dify: {str(e)}")
-            raise DifyApiException(f"删除对话时出错: {str(e)}")
+            logger.error(f"Error deleting conversation on Dify: {str(e)}")
+            raise DifyApiException(f"在 Dify 上删除对话时出错: {str(e)}")
 
     async def audio_to_text(
         self,
@@ -562,38 +562,69 @@ class DifyService:
         user: str
     ) -> Dict[str, Any]:
         """
-        Convert audio file to text using Dify.
-        
+        Convert audio to text using Dify's API.
+
         Args:
-            file: Audio file to transcribe.
-            user: User identifier.
-            
+            file: The audio file to transcribe.
+            user: The user identifier.
+
         Returns:
-            API response containing the transcribed text.
-            
+            The API response containing the transcribed text.
+
         Raises:
-            DifyApiException: If there's an error with the Dify API.
+            DifyApiException: If there's an error with the Dify API call.
+            ValueError: If the file type is not supported.
         """
         try:
+            # Map file extensions to their MIME types based on Dify's supported formats
+            supported_formats = {
+                ".mp3": "audio/mpeg",
+                ".mp4": "audio/mp4",
+                ".mpeg": "audio/mpeg",
+                ".mpga": "audio/mpeg",
+                ".m4a": "audio/m4a",
+                ".wav": "audio/wav",
+                ".webm": "audio/webm",
+            }
+            
+            file_extension = os.path.splitext(file.filename or "")[1].lower()
+            if file_extension not in supported_formats:
+                raise ValueError(f"不支持的文件类型: {file_extension}. 支持的格式: {list(supported_formats.keys())}")
+            
+            content_type = supported_formats[file_extension]
+
             url = f"{self.base_url}/audio-to-text"
             
+            # Prepare file for upload
             file_content = await file.read()
-            files = {"file": (file.filename, file_content, file.content_type)}
+            # Use the server-determined content_type instead of file.content_type
+            files = {"file": (file.filename, file_content, content_type)}
             data = {"user": user}
             
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            
-            response = await self.client.post(url, files=files, data=data, headers=headers)
-            
+            # For multipart/form-data, httpx sets the Content-Type header automatically.
+            # We must remove it from our custom headers to avoid conflicts.
+            headers = self.headers.copy()
+            headers.pop("Content-Type", None)
+
+            response = await self.client.post(
+                url,
+                files=files,
+                data=data,
+                headers=headers
+            )
+
             if response.status_code != 200:
                 self._handle_error_response(response)
-                
-            return response.json()
-            
-        except httpx.RequestError as e:
-            logger.error(f"Error converting audio to text via Dify: {str(e)}")
-            raise DifyApiException(f"音频转文本时出错: {str(e)}")
 
+            return response.json()
+
+        except ValueError as e:
+            logger.error(f"Audio conversion failed due to unsupported file type: {str(e)}")
+            raise DifyApiException(str(e), status_code=400) # Bad Request
+        except httpx.RequestError as e:
+            logger.error(f"Error converting audio to text: {str(e)}")
+            raise DifyApiException(f"语音转文字时出错: {str(e)}")
+    
     async def text_to_audio(
         self,
         user: str,

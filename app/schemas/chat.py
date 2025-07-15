@@ -181,6 +181,11 @@ class DocumentUploadResponse(BaseModel):
     status: str
 
 
+
+class AudioToTextResponse(BaseModel):
+    text: str
+
+
 class FeedbackRating(str, Enum):
     """Enum for feedback ratings"""
     LIKE = "like"

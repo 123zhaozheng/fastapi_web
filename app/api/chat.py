@@ -1,5 +1,5 @@
 from typing import Any, List, Optional, Dict
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks, Query, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -1158,3 +1158,70 @@ async def get_chat_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取聊天记录时出错: {str(e)}"
         )
+
+@router.post("/audio-to-text", response_model=UnifiedResponseSingle[schemas.AudioToTextResponse])
+async def audio_to_text(
+    file: UploadFile = File(...),
+    agent_id: int = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    将音频文件转换为文本。
+
+    此端点接收一个音频文件和-个 agent_id,使用指定的智能体将音频内容转换为文本。
+    它会验证用户对智能体的访问权限，然后调用 Dify 的语音转文本服务。
+
+    Args:
+        file (UploadFile): 要转换的音频文件。
+        agent_id (int): 用于处理请求的智能体的 ID。
+        db (Session): 数据库会话依赖。
+        current_user (User): 当前认证的用户依赖。
+
+    Returns:
+        UnifiedResponseSingle[schemas.AudioToTextResponse]: 包含转换后文本的统一响应。
+
+    Raises:
+        ResourceNotFoundException: 如果找不到指定的智能体。
+        HTTPException: 如果智能体不可用或用户无权访问。
+    """
+    # 1. Get agent and check availability
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise ResourceNotFoundException("智能体", str(agent_id))
+    if not agent.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="此智能体当前不可用"
+        )
+
+    # 2. Check user access to this agent (same logic as in chat_completions)
+    if not current_user.is_admin:
+        user_has_access = False
+        if any(p.type == "global" for p in agent.permissions):
+            user_has_access = True
+        if not user_has_access:
+            user_role_ids = {role.id for role in current_user.roles}
+            if any(p.type == "role" and p.role_id in user_role_ids for p in agent.permissions):
+                user_has_access = True
+        if not user_has_access and current_user.department_id:
+            if any(p.type == "department" and p.department_id == current_user.department_id for p in agent.permissions):
+                user_has_access = True
+        if not user_has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="您无权访问此智能体"
+            )
+
+    # 3. Initialize Dify service with agent's credentials
+    custom_dify_service = DifyService(api_key=agent.api_key, base_url=agent.api_endpoint)
+
+    try:
+        # 4. Call the audio-to-text service
+        response_data = await custom_dify_service.audio_to_text(file=file, user=current_user.username)
+        return UnifiedResponseSingle[schemas.AudioToTextResponse](data=schemas.AudioToTextResponse(**response_data))
+    except DifyApiException as e:
+        logger.error(f"Dify audio-to-text API error: {e.detail}")
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    finally:
+        await custom_dify_service.close()
