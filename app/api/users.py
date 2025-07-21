@@ -12,6 +12,7 @@ from app.schemas.response import UnifiedResponseSingle, UnifiedResponsePaginated
 from app.core.deps import get_current_user, get_admin_user, check_permission
 from app.core.security import get_password_hash, verify_password
 from app.services.file_storage import FileStorageService
+from app.utils.validators import validate_password_strength
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from loguru import logger
 
@@ -183,6 +184,15 @@ async def change_password(
             detail="当前密码不正确"
         )
     
+    # Validate new password strength
+    try:
+        validate_password_strength(password_data.new_password)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
     # Update password
     current_user.hashed_password = get_password_hash(password_data.new_password)
     db.commit()

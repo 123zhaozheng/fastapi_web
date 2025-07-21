@@ -24,3 +24,5 @@ gmssl       # Chinese SM2/SM3/SM4 cryptography algorithms implementation
 
 # To install these dependencies, run:
 # pip install -r requirements.txt
+
+captcha>=0.5

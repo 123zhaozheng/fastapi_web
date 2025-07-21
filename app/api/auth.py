@@ -1,6 +1,12 @@
+import base64
 from datetime import datetime, timedelta
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status
+import base64
+from datetime import datetime, timedelta
+from typing import Any
+from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -8,6 +14,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.token import Token, RefreshToken
 from app.schemas.user import UserLogin
+from app.utils.captcha import captcha_manager
 from app.schemas.response import UnifiedResponseSingle
 from app.core.security import (
     create_access_token,
@@ -24,6 +31,29 @@ from app.services.oa_sso import OASsoService, OASsoException
 from app.models.role import Role
 from app.config import settings
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+class CaptchaResponse(BaseModel):
+    captcha_id: str = Field(..., description="验证码的唯一ID")
+    image_base64: str = Field(..., description="Base64编码的验证码图片")
+
+
+@router.get("/captcha", response_model=UnifiedResponseSingle[CaptchaResponse])
+async def get_captcha():
+    """
+    获取一个新的图形验证码。
+
+    返回一个包含验证码ID和Base64编码的图片数据的JSON响应。
+    """
+    captcha_id, image_bytes = captcha_manager.generate()
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    
+    return UnifiedResponseSingle(
+        data=CaptchaResponse(
+            captcha_id=captcha_id,
+            image_base64=image_base64
+        )
+    )
 
 
 @router.post("/login", response_model=Token)
@@ -46,6 +76,13 @@ async def login(
     Raises:
         InvalidCredentialsException: 如果提供的凭据无效或用户账户被禁用。
     """
+    # Verify captcha
+    if not captcha_manager.verify(user_credentials.captcha_id, user_credentials.captcha_code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证码错误或已过期"
+        )
+
     # Authenticate user
     user = db.query(User).filter(User.username == user_credentials.username).first()
     
@@ -80,6 +117,8 @@ async def login(
 @router.post("/login/form", response_model=Token)
 async def login_form(
     form_data: OAuth2PasswordRequestForm = Depends(),
+    captcha_id: str = Form(...),
+    captcha_code: str = Form(...),
     db: Session = Depends(get_db)
 ) -> Any:
     """
@@ -89,6 +128,8 @@ async def login_form(
 
     Args:
         form_data (OAuth2PasswordRequestForm): 包含用户名和密码的表单数据依赖。
+        captcha_id (str): 验证码ID。
+        captcha_code (str): 用户输入的验证码。
         db (Session): 数据库会话依赖。
 
     Returns:
@@ -98,6 +139,13 @@ async def login_form(
         InvalidCredentialsException: 如果提供的凭据无效或用户账户被禁用。
     """
     logger.debug(f"Entering login_form for user: {form_data.username}")
+
+    # Verify captcha
+    if not captcha_manager.verify(captcha_id, captcha_code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证码错误或已过期"
+        )
 
     # Authenticate user
     logger.debug(f"Executing database query for user: {form_data.username}")

@@ -94,3 +94,5 @@ class UserAvatarUploadResponse(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+    captcha_id: str = Field(..., description="验证码ID")
+    captcha_code: str = Field(..., description="用户输入的验证码")

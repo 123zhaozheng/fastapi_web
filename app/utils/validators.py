@@ -7,37 +7,33 @@ from app.core.exceptions import InvalidFileTypeException, FileTooLargeException
 from app.config import settings
 
 
-def validate_password_strength(password: str) -> bool:
+def validate_password_strength(password: str) -> None:
     """
-    Validate password strength
-    
+    验证密码强度是否符合要求。
+
+    要求:
+    - 最小长度为 8 个字符
+    - 至少包含一个大写字母
+    - 至少包含一个小写字母
+    - 至少包含一个数字
+    - 至少包含一个特殊字符 (例如 @, #, $, 等)
+
     Args:
-        password: Password to validate
-        
-    Returns:
-        True if password is strong enough, False otherwise
+        password: 要验证的密码。
+
+    Raises:
+        ValueError: 如果密码不符合强度要求。
     """
-    # Check length
     if len(password) < 8:
-        return False
-    
-    # Check for at least one lowercase letter
-    if not re.search(r'[a-z]', password):
-        return False
-    
-    # Check for at least one uppercase letter
+        raise ValueError("密码长度不能少于8个字符")
     if not re.search(r'[A-Z]', password):
-        return False
-    
-    # Check for at least one digit
+        raise ValueError("密码必须包含至少一个大写字母")
+    if not re.search(r'[a-z]', password):
+        raise ValueError("密码必须包含至少一个小写字母")
     if not re.search(r'\d', password):
-        return False
-    
-    # Check for at least one special character
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        return False
-    
-    return True
+        raise ValueError("密码必须包含至少一个数字")
+    if not re.search(r'[^a-zA-Z0-9]', password):
+        raise ValueError("密码必须包含至少一个特殊字符 (例如 @, #, $, 等)")
 
 
 def validate_upload_file(
