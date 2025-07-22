@@ -33,8 +33,8 @@ def validate_password_strength(password: str) -> bool:
     if not re.search(r'\d', password):
         return False
     
-    # Check for at least one special character
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+    # Check for at least one @ character (required)
+    if '@' not in password:
         return False
     
     return True
@@ -91,7 +91,50 @@ def validate_upload_file(
             'video/quicktime'
         ]
     
-    # Validate file type
+    # Define allowed file extensions that match MIME types
+    allowed_extensions = {
+        # Documents
+        'pdf': 'application/pdf',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt': 'application/vnd.ms-powerpoint',
+        'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'txt': 'text/plain',
+        'csv': 'text/csv',
+        'html': 'text/html',
+        'htm': 'text/html',
+        'md': 'text/markdown',
+        # Images
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'svg': 'image/svg+xml',
+        # Audio
+        'mp3': 'audio/mpeg',
+        'wav': 'audio/wav',
+        'ogg': 'audio/ogg',
+        # Video
+        'mp4': 'video/mp4',
+        'webm': 'video/webm',
+        'mov': 'video/quicktime'
+    }
+    
+    # Get file extension
+    file_extension = get_file_extension(file.filename).lower()
+    
+    # Validate file extension exists and matches content type
+    if file_extension not in allowed_extensions:
+        raise InvalidFileTypeException(list(allowed_extensions.keys()))
+    
+    expected_mime_type = allowed_extensions[file_extension]
+    if file.content_type != expected_mime_type:
+        raise InvalidFileTypeException([f"文件扩展名 {file_extension} 与 MIME 类型 {file.content_type} 不匹配，期望 {expected_mime_type}"])
+    
+    # Validate file type is in allowed list
     if file.content_type not in allowed_types:
         raise InvalidFileTypeException(allowed_types)
     

@@ -14,6 +14,7 @@ from app.core.security import get_password_hash, verify_password
 from app.services.file_storage import FileStorageService
 from app.core.exceptions import DuplicateResourceException, ResourceNotFoundException, InvalidOperationException
 from loguru import logger
+from app.utils.validators import get_file_extension, validate_password_strength
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -34,12 +35,12 @@ async def get_current_user_profile(
     # Build role information
     role_ids = [role.id for role in current_user.roles]
     role_names = [role.name for role in current_user.roles]
-    
+
     # Get department name if exists
     department_name = None
     if current_user.department:
         department_name = current_user.department.name
-    
+
     # Create response
     result = schemas.UserProfile(
         id=current_user.id,
@@ -57,7 +58,7 @@ async def get_current_user_profile(
         created_at=current_user.created_at,
         last_login=current_user.last_login
     )
-    
+
     return UnifiedResponseSingle(data=result)
 
 
@@ -81,22 +82,22 @@ async def update_user_profile(
     # Update user fields
     if profile.full_name is not None:
         current_user.full_name = profile.full_name
-    
+
     if profile.phone is not None:
         current_user.phone = profile.phone
-    
+
     if profile.avatar is not None:
         current_user.avatar = profile.avatar
-    
+
     # Save changes
     db.commit()
     db.refresh(current_user)
-    
+
     # Build response
     role_ids = [role.id for role in current_user.roles]
     role_names = [role.name for role in current_user.roles]
     department_name = current_user.department.name if current_user.department else None
-    
+
     result = schemas.UserProfile(
         id=current_user.id,
         username=current_user.username,
@@ -113,7 +114,7 @@ async def update_user_profile(
         created_at=current_user.created_at,
         last_login=current_user.last_login
     )
-    
+
     return UnifiedResponseSingle(data=result)
 
 
@@ -143,15 +144,23 @@ async def upload_avatar(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="无效的文件类型。只允许上传图片。"
         )
-    
+
+    # Validate file extension
+    file_extension = get_file_extension(file.filename)
+    if file_extension not in ["jpg", "jpeg", "png", "gif"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无效的文件扩展名。只允许上传 jpg, jpeg, png, gif 格式的图片。"
+        )
+
     # Save avatar
     file_service = FileStorageService()
     avatar_info = await file_service.save_avatar(file, current_user.id)
-    
+
     # Update user avatar URL
     current_user.avatar = avatar_info["url"]
     db.commit()
-    
+
     # Return UnifiedResponseSingle
     return UnifiedResponseSingle(data={"url": avatar_info["url"], "thumbnails": avatar_info.get("thumbnails", {})})
 
@@ -182,11 +191,11 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="当前密码不正确"
         )
-    
+
     # Update password
     current_user.hashed_password = get_password_hash(password_data.new_password)
     db.commit()
-    
+
     logger.info(f"Password changed for user ID {current_user.id}")
     return UnifiedResponseSingle(data=None)
 
@@ -223,16 +232,16 @@ async def get_users(
 
     if username:
         query = query.filter(User.username.ilike(f"%{username}%"))
-    
+
     if email:
         query = query.filter(User.email.ilike(f"%{email}%"))
-    
+
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
-    
+
     if department_id:
         query = query.filter(User.department_id == department_id)
-    
+
     # 计算 skip
     skip = (page - 1) * page_size
 
@@ -280,15 +289,15 @@ async def create_user(
     # Check if username exists
     if db.query(User).filter(User.username == user.username).first():
         raise DuplicateResourceException("用户", "username", user.username)
-    
+
     # Check if email exists
     if db.query(User).filter(User.email == user.email).first():
         raise DuplicateResourceException("用户", "email", user.email)
-    
+
     # Validate department if specified
     if user.department_id and not db.query(Department).filter(Department.id == user.department_id).first():
         raise ResourceNotFoundException("部门", str(user.department_id))
-    
+
     # Create user object
     db_user = User(
         username=user.username,
@@ -301,11 +310,11 @@ async def create_user(
         department_id=user.department_id,
         hashed_password=get_password_hash(user.password)
     )
-    
+
     # Add user to database
     db.add(db_user)
     db.flush()  # Flush to get ID but don't commit yet
-    
+
     # Add roles if specified
     # Add roles if specified, OR assign default roles if none specified
     if user.role_ids:
@@ -315,7 +324,7 @@ async def create_user(
             missing_ids = set(user.role_ids) - {role.id for role in roles}
             db.rollback()
             raise ResourceNotFoundException("角色", str(missing_ids))
-        
+
         db_user.roles = roles
     else:
         # Find and assign default roles
@@ -323,7 +332,7 @@ async def create_user(
         if default_roles:
             db_user.roles = default_roles
         # else: No default roles found, user will have no roles initially
-    
+
     # Commit changes
     try:
         db.commit()
@@ -363,7 +372,7 @@ async def get_user(
     user = db.query(User).options(selectinload(User.roles)).filter(User.id == user_id).first() # Eager load roles
     if not user:
         raise ResourceNotFoundException("用户", str(user_id))
-    
+
     return UnifiedResponseSingle(data=user)
 
 
@@ -395,41 +404,41 @@ async def update_user(
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user:
         raise ResourceNotFoundException("用户", str(user_id))
-    
+
     # Check for username uniqueness if changing
     if user_update.username and user_update.username != db_user.username:
         if db.query(User).filter(User.username == user_update.username).first():
             raise DuplicateResourceException("用户", "username", user_update.username)
         db_user.username = user_update.username
-    
+
     # Check for email uniqueness if changing
     if user_update.email and user_update.email != db_user.email:
         if db.query(User).filter(User.email == user_update.email).first():
             raise DuplicateResourceException("用户", "email", user_update.email)
         db_user.email = user_update.email
-    
+
     # Update other fields if provided
     if user_update.full_name is not None:
         db_user.full_name = user_update.full_name
-    
+
     if user_update.phone is not None:
         db_user.phone = user_update.phone
-    
+
     if user_update.is_active is not None:
         db_user.is_active = user_update.is_active
-    
+
     if user_update.department_id is not None:
         if user_update.department_id and not db.query(Department).filter(Department.id == user_update.department_id).first():
             raise ResourceNotFoundException("部门", str(user_update.department_id))
         db_user.department_id = user_update.department_id
-    
+
     if user_update.is_admin is not None:
         db_user.is_admin = user_update.is_admin
-    
+
     # Commit changes
     db.commit()
     db.refresh(db_user)
-    
+
     logger.info(f"User updated: {db_user.username} (ID: {db_user.id})")
     return UnifiedResponseSingle(data=db_user)
 
@@ -497,11 +506,18 @@ async def reset_user_password(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise ResourceNotFoundException("用户", str(user_id))
-    
+
+    # Validate password strength
+    if not validate_password_strength(password_data.new_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密码强度不足。密码必须包含大小写字母、数字和@符号。"
+        )
+
     # Update password
     user.hashed_password = get_password_hash(password_data.new_password)
     db.commit()
-    
+
     logger.info(f"Password reset for user: {user.username} (ID: {user.id})")
     return UnifiedResponseSingle(data=None)
 
@@ -532,19 +548,19 @@ async def assign_roles_to_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise ResourceNotFoundException("用户", str(user_id))
-    
+
     # Get roles
     roles = db.query(Role).filter(Role.id.in_(role_ids)).all()
     if len(roles) != len(role_ids):
         # Some role IDs are invalid
         missing_ids = set(role_ids) - {role.id for role in roles}
         raise ResourceNotFoundException("角色", str(missing_ids))
-    
+
     # Update user roles
     user.roles = roles
     db.commit()
-    
+
     logger.info(f"Roles updated for user: {user.username} (ID: {user.id})")
-    
+
     result = {"user_id": user.id, "role_ids": [role.id for role in user.roles]}
     return UnifiedResponseSingle(data=result)
