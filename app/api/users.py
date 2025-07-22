@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
-from sqlalchemy.orm import Session, selectinload # Import selectinload
+from sqlalchemy.orm import Session, selectinload  # Import selectinload
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
@@ -20,10 +20,9 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.get("/me", response_model=UnifiedResponseSingle[schemas.UserProfile])
-async def get_current_user_profile(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Any:
+async def get_current_user_profile(db: Session = Depends(get_db),
+                                   current_user: User = Depends(
+                                       get_current_user)) -> Any:
     """
     获取当前用户资料
 
@@ -42,27 +41,26 @@ async def get_current_user_profile(
         department_name = current_user.department.name
 
     # Create response
-    result = schemas.UserProfile(
-        id=current_user.id,
-        username=current_user.username,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        phone=current_user.phone,
-        avatar=current_user.avatar,
-        is_active=current_user.is_active,
-        is_admin=current_user.is_admin,
-        department_id=current_user.department_id,
-        department_name=department_name,
-        role_ids=role_ids,
-        role_names=role_names,
-        created_at=current_user.created_at,
-        last_login=current_user.last_login
-    )
+    result = schemas.UserProfile(id=current_user.id,
+                                 username=current_user.username,
+                                 email=current_user.email,
+                                 full_name=current_user.full_name,
+                                 phone=current_user.phone,
+                                 avatar=current_user.avatar,
+                                 is_active=current_user.is_active,
+                                 is_admin=current_user.is_admin,
+                                 department_id=current_user.department_id,
+                                 department_name=department_name,
+                                 role_ids=role_ids,
+                                 role_names=role_names,
+                                 created_at=current_user.created_at,
+                                 last_login=current_user.last_login)
 
     return UnifiedResponseSingle(data=result)
 
 
-@router.put("/profile", response_model=UnifiedResponseSingle[schemas.UserProfile])
+@router.put("/profile",
+            response_model=UnifiedResponseSingle[schemas.UserProfile])
 async def update_user_profile(
     profile: schemas.UserProfileUpdate,
     db: Session = Depends(get_db),
@@ -98,32 +96,30 @@ async def update_user_profile(
     role_names = [role.name for role in current_user.roles]
     department_name = current_user.department.name if current_user.department else None
 
-    result = schemas.UserProfile(
-        id=current_user.id,
-        username=current_user.username,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        phone=current_user.phone,
-        avatar=current_user.avatar,
-        is_active=current_user.is_active,
-        is_admin=current_user.is_admin,
-        department_id=current_user.department_id,
-        department_name=department_name,
-        role_ids=role_ids,
-        role_names=role_names,
-        created_at=current_user.created_at,
-        last_login=current_user.last_login
-    )
+    result = schemas.UserProfile(id=current_user.id,
+                                 username=current_user.username,
+                                 email=current_user.email,
+                                 full_name=current_user.full_name,
+                                 phone=current_user.phone,
+                                 avatar=current_user.avatar,
+                                 is_active=current_user.is_active,
+                                 is_admin=current_user.is_admin,
+                                 department_id=current_user.department_id,
+                                 department_name=department_name,
+                                 role_ids=role_ids,
+                                 role_names=role_names,
+                                 created_at=current_user.created_at,
+                                 last_login=current_user.last_login)
 
     return UnifiedResponseSingle(data=result)
 
 
-@router.post("/avatar", response_model=UnifiedResponseSingle[schemas.UserAvatarUploadResponse]) # Added response_model
-async def upload_avatar(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> Any:
+@router.post("/avatar",
+             response_model=UnifiedResponseSingle[
+                 schemas.UserAvatarUploadResponse])  # Added response_model
+async def upload_avatar(file: UploadFile = File(...),
+                        db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)) -> Any:
     """
     上传用户头像
 
@@ -140,18 +136,14 @@ async def upload_avatar(
     """
     # Validate file type
     if not file.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="无效的文件类型。只允许上传图片。"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="无效的文件类型。只允许上传图片。")
 
     # Validate file extension
     file_extension = get_file_extension(file.filename)
     if file_extension not in ["jpg", "jpeg", "png", "gif"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="无效的文件扩展名。只允许上传 jpg, jpeg, png, gif 格式的图片。"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="无效的文件扩展名。只允许上传 jpg, jpeg, png, gif 格式的图片。")
 
     # Save avatar
     file_service = FileStorageService()
@@ -162,7 +154,11 @@ async def upload_avatar(
     db.commit()
 
     # Return UnifiedResponseSingle
-    return UnifiedResponseSingle(data={"url": avatar_info["url"], "thumbnails": avatar_info.get("thumbnails", {})})
+    return UnifiedResponseSingle(
+        data={
+            "url": avatar_info["url"],
+            "thumbnails": avatar_info.get("thumbnails", {})
+        })
 
 
 @router.post("/password", response_model=UnifiedResponseSingle[None])
@@ -186,14 +182,18 @@ async def change_password(
         HTTPException: 如果当前密码不正确。
     """
     # Verify current password
-    if not verify_password(password_data.current_password, current_user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前密码不正确"
-        )
+    # Validate password strength
+    if not validate_password_strength(password_data.new_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="密码强度不足。密码必须包含大小写字母、数字和特殊符号。")
+    if not verify_password(password_data.current_password,
+                           current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="当前密码不正确")
 
     # Update password
-    current_user.hashed_password = get_password_hash(password_data.new_password)
+    current_user.hashed_password = get_password_hash(
+        password_data.new_password)
     db.commit()
 
     logger.info(f"Password changed for user ID {current_user.id}")
@@ -201,16 +201,17 @@ async def change_password(
 
 
 @router.get("", response_model=UnifiedResponsePaginated[schemas.User])
-async def get_users(
-    page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
-    username: Optional[str] = Query(None),
-    email: Optional[str] = Query(None),
-    is_active: Optional[bool] = Query(None),
-    department_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user)
-) -> Any:
+async def get_users(page: int = Query(1, ge=1, description="页码，从1开始"),
+                    page_size: int = Query(10,
+                                           ge=1,
+                                           le=100,
+                                           description="每页数量"),
+                    username: Optional[str] = Query(None),
+                    email: Optional[str] = Query(None),
+                    is_active: Optional[bool] = Query(None),
+                    department_id: Optional[int] = Query(None),
+                    db: Session = Depends(get_db),
+                    current_user: User = Depends(get_admin_user)) -> Any:
     """
     获取用户列表 (管理员，分页，按更新日期倒序)
 
@@ -228,7 +229,8 @@ async def get_users(
         UnifiedResponsePaginated[schemas.User]: 包含用户列表和分页信息的统一返回对象。
     """
     # Build query with filters and eager load roles
-    query = db.query(User).options(selectinload(User.roles)) # Eager load roles
+    query = db.query(User).options(selectinload(
+        User.roles))  # Eager load roles
 
     if username:
         query = query.filter(User.username.ilike(f"%{username}%"))
@@ -249,19 +251,19 @@ async def get_users(
     total_count = query.count()
 
     # Execute query with pagination and sorting
-    users = query.order_by(User.updated_at.desc()).offset(skip).limit(page_size).all() # Added sorting
+    users = query.order_by(User.updated_at.desc()).offset(skip).limit(
+        page_size).all()  # Added sorting
 
     # Calculate total pages
-    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+    total_pages = (total_count + page_size -
+                   1) // page_size if total_count > 0 else 1
 
     # Return data in UnifiedResponsePaginated format
-    return UnifiedResponsePaginated(
-        data=users,
-        total=total_count,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages
-    )
+    return UnifiedResponsePaginated(data=users,
+                                    total=total_count,
+                                    page=page,
+                                    page_size=page_size,
+                                    total_pages=total_pages)
 
 
 @router.post("", response_model=UnifiedResponseSingle[schemas.User])
@@ -295,21 +297,20 @@ async def create_user(
         raise DuplicateResourceException("用户", "email", user.email)
 
     # Validate department if specified
-    if user.department_id and not db.query(Department).filter(Department.id == user.department_id).first():
+    if user.department_id and not db.query(Department).filter(
+            Department.id == user.department_id).first():
         raise ResourceNotFoundException("部门", str(user.department_id))
 
     # Create user object
-    db_user = User(
-        username=user.username,
-        email=user.email,
-        full_name=user.full_name,
-        phone=user.phone,
-        avatar=user.avatar,
-        is_active=user.is_active,
-        is_admin=user.is_admin,
-        department_id=user.department_id,
-        hashed_password=get_password_hash(user.password)
-    )
+    db_user = User(username=user.username,
+                   email=user.email,
+                   full_name=user.full_name,
+                   phone=user.phone,
+                   avatar=user.avatar,
+                   is_active=user.is_active,
+                   is_admin=user.is_admin,
+                   department_id=user.department_id,
+                   hashed_password=get_password_hash(user.password))
 
     # Add user to database
     db.add(db_user)
@@ -342,10 +343,8 @@ async def create_user(
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Failed to create user: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="创建用户时数据库出错"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="创建用户时数据库出错")
 
 
 @router.get("/{user_id}", response_model=UnifiedResponseSingle[schemas.User])
@@ -369,7 +368,8 @@ async def get_user(
         ResourceNotFoundException: 如果指定的用户 ID 不存在。
     """
     # Query user and eager load roles
-    user = db.query(User).options(selectinload(User.roles)).filter(User.id == user_id).first() # Eager load roles
+    user = db.query(User).options(selectinload(
+        User.roles)).filter(User.id == user_id).first()  # Eager load roles
     if not user:
         raise ResourceNotFoundException("用户", str(user_id))
 
@@ -407,8 +407,10 @@ async def update_user(
 
     # Check for username uniqueness if changing
     if user_update.username and user_update.username != db_user.username:
-        if db.query(User).filter(User.username == user_update.username).first():
-            raise DuplicateResourceException("用户", "username", user_update.username)
+        if db.query(User).filter(
+                User.username == user_update.username).first():
+            raise DuplicateResourceException("用户", "username",
+                                             user_update.username)
         db_user.username = user_update.username
 
     # Check for email uniqueness if changing
@@ -428,8 +430,10 @@ async def update_user(
         db_user.is_active = user_update.is_active
 
     if user_update.department_id is not None:
-        if user_update.department_id and not db.query(Department).filter(Department.id == user_update.department_id).first():
-            raise ResourceNotFoundException("部门", str(user_update.department_id))
+        if user_update.department_id and not db.query(Department).filter(
+                Department.id == user_update.department_id).first():
+            raise ResourceNotFoundException("部门",
+                                            str(user_update.department_id))
         db_user.department_id = user_update.department_id
 
     if user_update.is_admin is not None:
@@ -480,7 +484,8 @@ async def delete_user(
     logger.info(f"User deleted: {user.username} (ID: {user.id})")
 
 
-@router.post("/{user_id}/password-reset", response_model=UnifiedResponseSingle[None])
+@router.post("/{user_id}/password-reset",
+             response_model=UnifiedResponseSingle[None])
 async def reset_user_password(
     user_id: int,
     password_data: schemas.UserPasswordReset,
@@ -509,10 +514,8 @@ async def reset_user_password(
 
     # Validate password strength
     if not validate_password_strength(password_data.new_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="密码强度不足。密码必须包含大小写字母、数字和@符号。"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="密码强度不足。密码必须包含大小写字母、数字和@符号。")
 
     # Update password
     user.hashed_password = get_password_hash(password_data.new_password)

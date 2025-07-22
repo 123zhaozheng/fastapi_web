@@ -20,31 +20,29 @@ def validate_password_strength(password: str) -> bool:
     # Check length
     if len(password) < 8:
         return False
-    
+
     # Check for at least one lowercase letter
     if not re.search(r'[a-z]', password):
         return False
-    
+
     # Check for at least one uppercase letter
     if not re.search(r'[A-Z]', password):
         return False
-    
+
     # Check for at least one digit
     if not re.search(r'\d', password):
         return False
-    
-    # Check for at least one @ character (required)
-    if '@' not in password:
+
+    # Check for at least one special character
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
         return False
-    
+
     return True
 
 
-def validate_upload_file(
-    file: UploadFile, 
-    allowed_types: List[str] = None, 
-    max_size: int = None
-) -> bool:
+def validate_upload_file(file: UploadFile,
+                         allowed_types: List[str] = None,
+                         max_size: int = None) -> bool:
     """
     Validate uploaded file
     
@@ -90,17 +88,20 @@ def validate_upload_file(
             'video/webm',
             'video/quicktime'
         ]
-    
+
     # Define allowed file extensions that match MIME types
     allowed_extensions = {
         # Documents
         'pdf': 'application/pdf',
         'doc': 'application/msword',
-        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'docx':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'xls': 'application/vnd.ms-excel',
-        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'xlsx':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'ppt': 'application/vnd.ms-powerpoint',
-        'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'pptx':
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         'txt': 'text/plain',
         'csv': 'text/csv',
         'html': 'text/html',
@@ -122,43 +123,46 @@ def validate_upload_file(
         'webm': 'video/webm',
         'mov': 'video/quicktime'
     }
-    
+
     # Get file extension
     file_extension = get_file_extension(file.filename).lower()
-    
+
     # Validate file extension exists and matches content type
     if file_extension not in allowed_extensions:
         raise InvalidFileTypeException(list(allowed_extensions.keys()))
-    
+
     expected_mime_type = allowed_extensions[file_extension]
     if file.content_type != expected_mime_type:
-        raise InvalidFileTypeException([f"文件扩展名 {file_extension} 与 MIME 类型 {file.content_type} 不匹配，期望 {expected_mime_type}"])
-    
+        raise InvalidFileTypeException([
+            f"文件扩展名 {file_extension} 与 MIME 类型 {file.content_type} 不匹配，期望 {expected_mime_type}"
+        ])
+
     # Validate file type is in allowed list
     if file.content_type not in allowed_types:
         raise InvalidFileTypeException(allowed_types)
-    
+
     # Validate file size
     if not max_size:
         max_size = settings.MAX_UPLOAD_SIZE
-    
+
     # Store file position
     pos = file.file.tell()
-    
+
     # Move to end to get size
     file.file.seek(0, os.SEEK_END)
     size = file.file.tell()
-    
+
     # Restore position
     file.file.seek(pos)
-    
+
     if size > max_size:
         raise FileTooLargeException(max_size)
-    
+
     return True
 
 
-def validate_json_structure(data: Dict[str, Any], required_keys: Set[str]) -> bool:
+def validate_json_structure(data: Dict[str, Any],
+                            required_keys: Set[str]) -> bool:
     """
     Validate JSON structure
     
