@@ -181,19 +181,22 @@ async def change_password(
     Raises:
         HTTPException: 如果当前密码不正确。
     """
+    # 解码密码
+    decoded_current_password = password_data.get_decoded_current_password()
+    decoded_new_password = password_data.get_decoded_new_password()
+    
     # Verify current password
     # Validate password strength
-    if not validate_password_strength(password_data.new_password):
+    if not validate_password_strength(decoded_new_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="密码强度不足。密码必须包含大小写字母、数字和特殊符号。")
-    if not verify_password(password_data.current_password,
+    if not verify_password(decoded_current_password,
                            current_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="当前密码不正确")
 
     # Update password
-    current_user.hashed_password = get_password_hash(
-        password_data.new_password)
+    current_user.hashed_password = get_password_hash(decoded_new_password)
     db.commit()
 
     logger.info(f"Password changed for user ID {current_user.id}")
@@ -512,13 +515,16 @@ async def reset_user_password(
     if not user:
         raise ResourceNotFoundException("用户", str(user_id))
 
+    # 解码密码
+    decoded_new_password = password_data.get_decoded_new_password()
+    
     # Validate password strength
-    if not validate_password_strength(password_data.new_password):
+    if not validate_password_strength(decoded_new_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="密码强度不足。密码必须包含大小写字母、数字和@符号。")
 
     # Update password
-    user.hashed_password = get_password_hash(password_data.new_password)
+    user.hashed_password = get_password_hash(decoded_new_password)
     db.commit()
 
     logger.info(f"Password reset for user: {user.username} (ID: {user.id})")

@@ -49,7 +49,10 @@ async def login(
     # Authenticate user
     user = db.query(User).filter(User.username == user_credentials.username).first()
     
-    if not user or not verify_password(user_credentials.password, user.hashed_password):
+    # 解码密码
+    decoded_password = user_credentials.get_decoded_password()
+    
+    if not user or not verify_password(decoded_password, user.hashed_password):
         logger.warning(f"Login failed: Invalid credentials for user {user_credentials.username}")
         # 使用 exceptions.py 中定义的默认中文消息 "用户名或密码错误"
         raise InvalidCredentialsException()

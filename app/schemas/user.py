@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 from ..config import settings
 from .role import Role
+import base64
 
 # Base User Schema
 class UserBase(BaseModel):
@@ -42,13 +43,36 @@ class UserProfileUpdate(BaseModel):
 
 # Schema for password change
 class UserPasswordChange(BaseModel):
-    current_password: str
-    new_password: str
+    """User password change schema"""
+    current_password: str = Field(..., description="Base64编码的当前密码")
+    new_password: str = Field(..., description="Base64编码的新密码")
+
+    def get_decoded_current_password(self) -> str:
+        """解码Base64当前密码"""
+        try:
+            return base64.b64decode(self.current_password).decode('utf-8')
+        except:
+            return self.current_password
+
+    def get_decoded_new_password(self) -> str:
+        """解码Base64新密码"""
+        try:
+            return base64.b64decode(self.new_password).decode('utf-8')
+        except:
+            return self.new_password
 
 
 # Schema for password reset by admin
 class UserPasswordReset(BaseModel):
-    new_password: Optional[str] = settings.DEFAULT_RESET_PASSWORD
+    """User password reset schema"""
+    new_password: str = Field(..., description="Base64编码的新密码")
+
+    def get_decoded_new_password(self) -> str:
+        """解码Base64新密码"""
+        try:
+            return base64.b64decode(self.new_password).decode('utf-8')
+        except:
+            return self.new_password
 
 
 # Schema returned to client
@@ -92,5 +116,14 @@ class UserAvatarUploadResponse(BaseModel):
 
 # Schema for user login
 class UserLogin(BaseModel):
-    username: str
-    password: str
+    """User login schema"""
+    username: str = Field(..., description="用户名")
+    password: str = Field(..., description="Base64编码的密码")
+
+    def get_decoded_password(self) -> str:
+        """解码Base64密码"""
+        try:
+            return base64.b64decode(self.password).decode('utf-8')
+        except:
+            # 如果解码失败，返回原始密码（兼容性处理）
+            return self.password
