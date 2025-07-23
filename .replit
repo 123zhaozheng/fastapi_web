@@ -1,11 +1,11 @@
 modules = ["python-3.11"]
-run = "python -m app.main"
+run = "python undefined"
 
 [nix]
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "python -m app.main"]
+run = ["sh", "-c", "python undefined"]
 
 [[ports]]
 localPort = 15000
