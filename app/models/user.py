@@ -29,6 +29,7 @@ class User(Base):
     # User status
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    password_reset_required = Column(Boolean, default=False)
     
     # Department relationship
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)

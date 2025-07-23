@@ -48,35 +48,36 @@ async def login(
     """
     # Authenticate user
     user = db.query(User).filter(User.username == user_credentials.username).first()
-    
+
     # 解码密码
     decoded_password = user_credentials.get_decoded_password()
-    
+
     if not user or not verify_password(decoded_password, user.hashed_password):
         logger.warning(f"Login failed: Invalid credentials for user {user_credentials.username}")
         # 使用 exceptions.py 中定义的默认中文消息 "用户名或密码错误"
         raise InvalidCredentialsException()
-    
+
     if not user.is_active:
         logger.warning(f"Login failed: Inactive user {user_credentials.username}")
         raise InvalidCredentialsException("账户已被禁用")
-    
+
     # Update last login timestamp
     user.last_login = datetime.utcnow()
     db.commit()
-    
+
     # Generate tokens
     access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
-    
+
     logger.info(f"User {user.username} logged in successfully")
-    
+
     result = {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "password_reset_required": user.password_reset_required or False
     }
-    
+
     return result
 
 
@@ -131,9 +132,10 @@ async def login_form(
     result = {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "password_reset_required": user.password_reset_required or False
     }
-    
+
     return result
 
 
@@ -164,7 +166,7 @@ async def refresh_token_endpoint(
             SECRET_KEY,
             algorithms=["HS256"]
         )
-        
+
         # Validate token type and expiration
         if payload.get("type") != "refresh":
             raise HTTPException(
@@ -172,34 +174,34 @@ async def refresh_token_endpoint(
                 detail="无效的刷新令牌",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         # Get user ID from token
         user_id = int(payload.get("sub"))
-        
+
         # Get user from database
         user = db.query(User).filter(User.id == user_id).first()
-        
+
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="无效的刷新令牌或用户未激活",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         # Generate new tokens
         new_access_token = create_access_token(user.id)
         new_refresh_token = create_refresh_token(user.id)
-        
+
         logger.info(f"Tokens refreshed for user {user.username}")
-        
+
         result = {
             "access_token": new_access_token,
             "refresh_token": new_refresh_token,
             "token_type": "bearer"
         }
-        
+
         return result
-        
+
     except JWTError:
         logger.warning("Token refresh failed: Invalid refresh token")
         raise HTTPException(
@@ -262,5 +264,6 @@ async def oa_sso_login(
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "password_reset_required": user.password_reset_required or False
     }
