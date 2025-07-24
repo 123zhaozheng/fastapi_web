@@ -11,6 +11,8 @@ from app.config import settings
 from app.api import auth, users, roles, departments, menus, agents, chat, agent_categories
 from app.utils.logger import setup_logging
 from app.core.exceptions import AppException
+from guard.middleware import SecurityMiddleware
+from app.core.guard import security_config, guard_deco # 导入共享的实例
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +24,13 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
 )
 logger.info("FastAPI app created.")
+
+# 1. 添加 SecurityMiddleware 并使用共享的配置
+app.add_middleware(SecurityMiddleware, config=security_config)
+
+# 2. 关键步骤：将共享的 guard_deco 实例赋值给 app.state
+# 这使得中间件能够发现并应用在其他路由文件中定义的装饰器规则
+app.state.guard_decorator = guard_deco
 
 # Set up CORS
 app.add_middleware(

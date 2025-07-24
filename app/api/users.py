@@ -197,6 +197,7 @@ async def change_password(
 
     # Update password
     current_user.hashed_password = get_password_hash(decoded_new_password)
+    current_user.password_reset_required = False
     db.commit()
 
     logger.info(f"Password changed for user ID {current_user.id}")

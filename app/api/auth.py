@@ -23,10 +23,13 @@ from loguru import logger
 from app.services.oa_sso import OASsoService, OASsoException
 from app.models.role import Role
 from app.config import settings
+from app.core.guard import guard_deco # 导入共享的 guard_deco 实例
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=Token)
+@guard_deco.rate_limit(requests=3, window=60)  # 1分钟内最多10次请求
 async def login(
     user_credentials: UserLogin,
     db: Session = Depends(get_db)
@@ -82,6 +85,7 @@ async def login(
 
 
 @router.post("/login/form", response_model=Token)
+@guard_deco.rate_limit(requests=10, window=60)  # 1分钟内最多10次请求
 async def login_form(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
@@ -212,6 +216,7 @@ async def refresh_token_endpoint(
 
 
 @router.post("/login/oa-sso", response_model=Token)
+@guard_deco.rate_limit(requests=10, window=60)  # 1分钟内最多10次请求
 async def oa_sso_login(
     token_data: dict,  # expecting {"token": "..."}
     db: Session = Depends(get_db)

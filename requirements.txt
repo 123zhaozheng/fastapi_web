@@ -21,6 +21,6 @@ sqlalchemy>=2.0.40     # SQLAlchemy ORM and SQL Toolkit
 sse-starlette>=2.3.3   # Server-Sent Events support for Starlette (and FastAPI)
 uvicorn>=0.34.2        # Uvicorn ASGI server (often used with FastAPI/Starlette)
 gmssl       # Chinese SM2/SM3/SM4 cryptography algorithms implementation
-
+fastapi-guard
 # To install these dependencies, run:
 # pip install -r requirements.txt
