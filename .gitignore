@@ -8,7 +8,7 @@ newvenv/
 
 # Configuration
 .env
-
+.roo/
 # Logs
 logs/
 *.log

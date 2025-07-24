@@ -22,7 +22,7 @@ async def get_menus(
     title: Optional[str] = Query(None),
     parent_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ) -> Any:
     """
     获取菜单列表 (分页，按更新日期倒序)
