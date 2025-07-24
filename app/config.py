@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from pydantic import PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24))  # 24 hours
     REFRESH_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", 60 * 24 * 7))  # 7 days
     DEFAULT_RESET_PASSWORD: str = os.getenv("DEFAULT_RESET_PASSWORD", "Kunxiaozhi@123")  # 默认重置密码
+    TRUSTED_PROXIES: List[str] = os.getenv("TRUSTED_PROXIES", "127.0.0.1").split(",")
     
     POSTGRES_HOST: str = os.getenv("PGHOST", "137.184.113.70")
     POSTGRES_PORT: str = os.getenv("PGPORT", "15432")

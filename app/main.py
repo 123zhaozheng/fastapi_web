@@ -1,6 +1,6 @@
 import os
 import time
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -11,26 +11,24 @@ from app.config import settings
 from app.api import auth, users, roles, departments, menus, agents, chat, agent_categories
 from app.utils.logger import setup_logging
 from app.core.exceptions import AppException
-from guard.middleware import SecurityMiddleware
-from app.core.guard import security_config, guard_deco # 导入共享的实例
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.core.limiter import limiter
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 logger.info("Creating FastAPI app...")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 logger.info("FastAPI app created.")
-
-# 1. 添加 SecurityMiddleware 并使用共享的配置
-app.add_middleware(SecurityMiddleware, config=security_config)
-
-# 2. 关键步骤：将共享的 guard_deco 实例赋值给 app.state
-# 这使得中间件能够发现并应用在其他路由文件中定义的装饰器规则
-app.state.guard_decorator = guard_deco
 
 # Set up CORS
 app.add_middleware(
@@ -154,4 +152,10 @@ if __name__ == "__main__":
     """
     
     print(ascii_art)
-    uvicorn.run("app.main:app", host="0.0.0.0", port=15000, reload=True)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=15000,
+        reload=True,
+        forwarded_allow_ips=settings.TRUSTED_PROXIES
+    )
