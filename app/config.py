@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     OA_SSO_PUBLIC_KEY: str = os.getenv("OA_SSO_PUBLIC_KEY", "")
     OA_SSO_CHANNEL_ID: str = os.getenv("OA_SSO_CHANNEL_ID", "aimp")
     
+    # 企业微信智能机器人设置
+    WECOM_TOKEN: str = os.getenv("WECOM_TOKEN", "")
+    WECOM_ENCODING_AES_KEY: str = os.getenv("WECOM_ENCODING_AES_KEY", "")
+    WECOM_RECEIVE_ID: str = os.getenv("WECOM_RECEIVE_ID", "")  # 智能机器人通常为空字符串
+    
+    # aibotid 到 Dify agentid 的映射配置 (JSON格式)
+    # 例如: {"AIBOT001": "agent-123", "AIBOT002": "agent-456"}
+    WECOM_AIBOT_AGENT_MAPPING: str = os.getenv("WECOM_AIBOT_AGENT_MAPPING", "{}")
+    
     @field_validator("DATABASE_URI", mode="before")
     def assemble_db_connection(cls, v: Optional[str], values: Dict[str, Any]) -> Any:
         if isinstance(v, str):
