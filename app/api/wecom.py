@@ -10,8 +10,9 @@ import json
 import logging
 import base64
 import hashlib
+import io
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -28,7 +29,8 @@ from app.utils.wecom_message import (
     parse_markdown_images,
     download_image,
     stream_cache,
-    get_agent_id_from_aibot
+    get_agent_id_from_aibot,
+    make_welcome_template_card
 )
 from app.services.dify import DifyService
 
@@ -79,7 +81,8 @@ async def process_dify_response(
     receive_id: str,
     nonce: str,
     timestamp: str,
-    agent: Optional[Agent] = None
+    agent: Optional[Agent] = None,
+    images: Optional[list] = None
 ) -> None:
     """
     后台任务：处理 Dify 流式响应
@@ -91,6 +94,8 @@ async def process_dify_response(
         receive_id: 接收方ID
         nonce: 随机数
         timestamp: 时间戳
+        agent: Agent实例
+        images: 图片数据列表（二进制数据）
     """
     try:
         logger.info(f"开始处理 Dify 流式响应，stream_id={stream_id}, user_query={user_query}")
@@ -107,10 +112,18 @@ async def process_dify_response(
             logger.info("使用默认 Dify 配置")
         
         try:
-            # 调用 Dify 流式 API
+            # 处理图片上传到 Dify
+            uploaded_files = []
+            if images:
+                logger.info(f"开始上传 {len(images)} 张图片到 Dify")
+                uploaded_files = await upload_images_to_dify(images, dify_service, user_id)
+                logger.info(f"成功上传 {len(uploaded_files)} 张图片到 Dify")
+            
+            # 调用 Dify 流式 API，包含上传的文件
             async for chunk in dify_service.send_chat_message(
                 query=user_query,
                 user=user_id,
+                files=uploaded_files if uploaded_files else None,
                 streaming=True
             ):
                 logger.debug(f"收到 Dify 响应块: {chunk}")
@@ -125,11 +138,11 @@ async def process_dify_response(
                         stream_cache.add_text_part(stream_id, answer)
                         
                         # 解析可能的图片链接
-                        clean_text, images = parse_markdown_images(answer)
+                        # clean_text, images = parse_markdown_images(answer)
                         
-                        if images:
-                            # 如果包含图片，异步下载并处理
-                            await process_images_in_response(stream_id, images)
+                        # if images:
+                        #     # 如果包含图片，异步下载并处理
+                        #     await process_images_in_response(stream_id, images)
                         
                 elif event == 'message_end':
                     # 消息结束
@@ -162,9 +175,65 @@ async def process_dify_response(
         stream_cache.mark_finished(stream_id)
 
 
+async def upload_images_to_dify(images: list, dify_service: DifyService, user_id: str) -> list:
+    """
+    上传图片到 Dify 服务
+    
+    Args:
+        images: 图片二进制数据列表
+        dify_service: Dify服务实例
+        user_id: 用户ID
+        
+    Returns:
+        上传成功的文件信息列表
+    """
+    uploaded_files = []
+    
+    for i, image_data in enumerate(images):
+        try:
+            # 确定图片格式
+            image_format = "png"  # 默认格式
+            if image_data.startswith(b'\xff\xd8\xff'):
+                image_format = "jpg"
+            elif image_data.startswith(b'\x89PNG'):
+                image_format = "png"
+            elif image_data.startswith(b'GIF'):
+                image_format = "gif"
+            elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:20]:
+                image_format = "webp"
+            
+            filename = f"image_{i+1}.{image_format}"
+            
+            # 创建 UploadFile 对象
+            file_obj = UploadFile(
+                filename=filename,
+                file=io.BytesIO(image_data),
+                content_type=f"image/{image_format}"
+            )
+            
+            # 上传到 Dify
+            upload_response = await dify_service.upload_file(file_obj, user_id)
+            
+            # 构造文件信息
+            file_info = {
+                "type": "image",
+                "transfer_method": "local_file",
+                "upload_file_id": upload_response.get("id")
+            }
+            
+            uploaded_files.append(file_info)
+            logger.info(f"成功上传图片到 Dify: {filename}")
+            
+        except Exception as e:
+            logger.error(f"上传图片到 Dify 失败: {str(e)}")
+            continue
+    
+    return uploaded_files
+
+
 async def process_images_in_response(stream_id: str, images: list) -> None:
     """
-    处理响应中的图片
+    处理响应中的图片（Dify返回的Markdown图片链接）
     
     Args:
         stream_id: 流ID
@@ -383,7 +452,7 @@ async def handle_message(
                             "text": {"content": current_content}
                         })
                     
-                    # 添加图片
+                    # 添加图片（这些是Dify返回的Markdown图片）
                     for image_data in images:
                         image_md5 = hashlib.md5(image_data).hexdigest()
                         image_base64 = base64.b64encode(image_data).decode('utf-8')
@@ -397,7 +466,7 @@ async def handle_message(
                     
                     final_response = make_mixed_stream(stream_id, items, True)
                 elif images:
-                    # 只有图片
+                    # 只有图片（Dify返回的）
                     final_response = make_image_stream(stream_id, images[0], True)
                 else:
                     # 只有文本
@@ -429,13 +498,27 @@ async def handle_message(
                 encrypted_response = encrypt_message(receive_id, nonce, timestamp, error_response)
                 return Response(content=encrypted_response, media_type="text/plain")
             
-            # 可以选择直接返回原图或者通过AI处理
-            # 这里简单处理：直接返回原图
+            # 将图片上传到 Dify 并进行 AI 分析
             decrypted_data = result
             stream_id = generate_random_string(16)
             
-            image_response = make_image_stream(stream_id, decrypted_data, True)
-            encrypted_response = encrypt_message(receive_id, nonce, timestamp, image_response)
+            # 立即返回初始响应
+            initial_response = make_text_stream(stream_id, "正在分析您的图片...", False)
+            encrypted_response = encrypt_message(receive_id, nonce, timestamp, initial_response)
+            
+            # 添加后台任务处理图片分析
+            background_tasks.add_task(
+                process_dify_response,
+                stream_id,
+                "请分析这张图片",  # 默认提示词
+                user_id,
+                receive_id,
+                nonce,
+                timestamp,
+                agent,  # 传递 agent 对象
+                [decrypted_data]  # 传递图片数据列表
+            )
+            
             return Response(content=encrypted_response, media_type="text/plain")
         
         # 处理混合消息（图文混排）
@@ -468,38 +551,34 @@ async def handle_message(
             # 合并文本内容
             combined_text = '\n'.join(text_parts) if text_parts else ""
             
-            if combined_text:
-                # 生成流ID并启动后台任务处理文本内容
+            if combined_text or images:
+                # 生成流ID并启动后台任务处理
                 stream_id = generate_random_string(16)
                 
                 # 立即返回初始响应
-                initial_response = make_text_stream(stream_id, "正在分析您的图文消息...", False)
+                if images and combined_text:
+                    initial_message = "正在分析您的图文消息..."
+                elif images:
+                    initial_message = "正在分析您的图片..."
+                else:
+                    initial_message = "正在处理您的消息..."
+                
+                initial_response = make_text_stream(stream_id, initial_message, False)
                 encrypted_response = encrypt_message(receive_id, nonce, timestamp, initial_response)
                 
-                # 预先将图片添加到缓存
-                stream_cache.create_stream(stream_id, combined_text)
-                for image_data in images:
-                    stream_cache.add_image(stream_id, image_data)
-                
-                # 添加后台任务处理 Dify 响应
+                # 添加后台任务处理 Dify 响应，传递图片数据
                 background_tasks.add_task(
                     process_dify_response,
                     stream_id,
-                    combined_text,
+                    combined_text or "请分析这张图片",  # 如果没有文本，提供默认提示
                     user_id,
                     receive_id,
                     nonce,
                     timestamp,
-                    agent  # 传递 agent 对象
+                    agent,  # 传递 agent 对象
+                    images  # 传递图片数据
                 )
                 
-                return Response(content=encrypted_response, media_type="text/plain")
-            
-            elif images:
-                # 只有图片，直接返回第一张图片
-                stream_id = generate_random_string(16)
-                image_response = make_image_stream(stream_id, images[0], True)
-                encrypted_response = encrypt_message(receive_id, nonce, timestamp, image_response)
                 return Response(content=encrypted_response, media_type="text/plain")
             
             else:
@@ -509,9 +588,26 @@ async def handle_message(
         
         # 处理事件消息
         elif msgtype == 'event':
-            logger.warning(f"收到event消息类型: {data}")
-            # TODO: 一些事件的处理
-            return Response(content="success", media_type="text/plain")
+            event = data.get('event', '')
+            logger.info(f"收到事件: {event}")
+            
+            # 处理进入会话事件
+            if event.get('eventtype') == 'enter_chat':
+                logger.info(f"用户 {user_id} 首次进入与机器人 {aibotid} 的会话")
+                
+                # 获取智能助手名称
+                agent_name = agent.name if agent else "AI助手"
+                
+                # 构造欢迎卡片
+                welcome_card_response = make_welcome_template_card(agent_name)
+                
+                # 加密并返回欢迎卡片
+                encrypted_response = encrypt_message(aibotid, nonce, timestamp, welcome_card_response)
+                return Response(content=encrypted_response, media_type="text/plain")
+            
+            else:
+                logger.info(f"暂不处理的事件类型: {event}")
+                return Response(content="success", media_type="text/plain")
         
         else:
             logger.warning(f"不支持的消息类型: {msgtype}")

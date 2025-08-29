@@ -133,6 +133,108 @@ def make_mixed_stream(stream_id: str, items: list, finish: bool = False) -> str:
     return json.dumps(plain, ensure_ascii=False)
 
 
+def make_template_card(card_data: Dict[str, Any]) -> str:
+    """
+    构造模板卡片消息
+    
+    Args:
+        card_data: 模板卡片的内容数据
+        
+    Returns:
+        JSON格式的模板卡片消息字符串
+    """
+    plain = {
+        "msgtype": "template_card",
+        "template_card": card_data
+    }
+    return json.dumps(plain, ensure_ascii=False)
+
+
+def convert_image_url_to_proxy(original_url: str) -> str:
+    """
+    将原始的腾讯云COS图片URL转换为代理服务器格式
+    
+    Args:
+        original_url: 原始图片URL，格式如：https://ww-aibot-img-1258476243.cos.ap-guangzhou.myqcloud.com/xxxxxxxxxx
+        
+    Returns:
+        转换后的代理URL，格式如：http://{ip}?path=xxxxxxxxxx
+    """
+    if not settings.IMAGE_PROXY_IP:
+        logger.warning("未配置IMAGE_PROXY_IP，将使用原始URL")
+        return original_url
+    
+    try:
+        # 提取URL中的文件路径部分
+        # 原始URL格式：https://ww-aibot-img-1258476243.cos.ap-guangzhou.myqcloud.com/xxxxxxxxxx
+        if "cos.ap-guangzhou.myqcloud.com/" in original_url:
+            # 提取域名后的路径部分
+            path_part = original_url.split("cos.ap-guangzhou.myqcloud.com/", 1)[1]
+            # 构造代理URL
+            proxy_url = f"http://{settings.IMAGE_PROXY_IP}/cos-image?path={path_part}"
+            logger.info(f"URL转换: {original_url} -> {proxy_url}")
+            return proxy_url
+        else:
+            logger.warning(f"URL格式不匹配，无法转换: {original_url}")
+            return original_url
+            
+    except Exception as e:
+        logger.error(f"URL转换失败: {e}")
+        return original_url
+
+
+def make_welcome_template_card(agent_name: str = "AI助手") -> str:
+    """
+    构造欢迎模板卡片
+    
+    Args:
+        agent_name: 智能助手的名称
+        
+    Returns:
+        JSON格式的欢迎卡片消息字符串
+    """
+    card_data = {
+        "card_type": "text_notice",
+        "source": {
+            "icon_url": "https://wework.qpic.cn/wwpic/252813_jOfDHtcISzuodLa_1629280209/0",
+            "desc": agent_name,
+            "desc_color": 1
+        },
+        "main_title": {
+            "title": f"欢迎使用{agent_name}",
+            "desc": "我是您的智能助手，可以帮您解答问题、提供信息和协助工作"
+        },
+        "emphasis_content": {
+            "title": "在线",
+            "desc": "服务状态"
+        },
+        "horizontal_content_list": [
+            {
+                "keyname": "功能",
+                "value": "智能问答、知识查询、工作协助"
+            },
+            {
+                "keyname": "支持",
+                "value": "文本、图片、混合消息"
+            }
+        ],
+        "jump_list": [
+            {
+                "type": 3,
+                "title": "了解功能",
+                "question": "你有哪些功能？"
+            },
+            {
+                "type": 3,
+                "title": "使用帮助",
+                "question": "如何使用你？"
+            }
+        ]
+    }
+    
+    return make_template_card(card_data)
+
+
 def process_encrypted_image(image_url: str, aes_key_base64: str) -> Tuple[bool, bytes | str]:
     """
     下载并解密加密图片
@@ -147,9 +249,10 @@ def process_encrypted_image(image_url: str, aes_key_base64: str) -> Tuple[bool, 
                status为False时data是错误信息
     """
     try:
-        # 1. 下载加密图片
-        logger.info(f"开始下载加密图片: {image_url}")
-        response = requests.get(image_url, timeout=15)
+        # 1. 转换为代理URL并下载加密图片
+        proxy_url = convert_image_url_to_proxy(image_url)
+        logger.info(f"开始下载加密图片: {proxy_url}")
+        response = requests.get(proxy_url, timeout=15)
         response.raise_for_status()
         encrypted_data = response.content
         logger.info(f"图片下载成功，大小: {len(encrypted_data)} 字节")

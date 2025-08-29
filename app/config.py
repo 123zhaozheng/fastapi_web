@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # 例如: {"AIBOT001": "agent-123", "AIBOT002": "agent-456"}
     WECOM_AIBOT_AGENT_MAPPING: str = os.getenv("WECOM_AIBOT_AGENT_MAPPING", "{}")
     
+    # 图片代理服务器设置
+    IMAGE_PROXY_IP: str = os.getenv("IMAGE_PROXY_IP", "")
+    
     @field_validator("DATABASE_URI", mode="before")
     def assemble_db_connection(cls, v: Optional[str], values: Dict[str, Any]) -> Any:
         if isinstance(v, str):
